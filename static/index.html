@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Sessions</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%237aa2f7'/%3E%3Cpath d='M4 5h8M4 8h8M4 11h5' stroke='%230f1115' stroke-width='1.6'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161a21; --row: #141820; --row-hover: #1a1f29; --border: #262c38;
+    --text: #d7dce5; --muted: #8a93a3; --faint: #5f6878; --accent: #7aa2f7;
+    --green: #4ade80; --yellow: #facc15; --red: #f87171; --chip: #1c2230; --chip-on: #263553;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 var(--sans); }
+  header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--border);
+           padding: 10px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  h1 { font-size: 14px; margin: 0; font-weight: 600; white-space: nowrap; }
+  #q { flex: 1 1 280px; min-width: 200px; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+       padding: 6px 10px; border-radius: 6px; font: inherit; }
+  #q:focus, select:focus, input.note:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .chips .lbl { color: var(--faint); font-size: 12px; margin-right: 2px; }
+  .chip { background: var(--chip); border: 1px solid var(--border); color: var(--muted); border-radius: 999px;
+          padding: 1px 9px; cursor: pointer; font-size: 12px; user-select: none; }
+  .chip.on { background: var(--chip-on); color: var(--text); border-color: var(--accent); }
+  .chip .n, h2 .n { color: var(--faint); font-size: 11px; }
+  label.tog { color: var(--muted); font-size: 12px; display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+  select, input.note { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 5px;
+                       font: inherit; font-size: 12px; padding: 3px 6px; }
+  #count { color: var(--faint); font-size: 12px; margin-left: auto; }
+  #banner { background: #3b1d1d; color: var(--red); padding: 6px 16px; border-bottom: 1px solid #5b2626; }
+  main { padding: 4px 16px 48px; }
+  h2 { font: 600 12px/1.4 var(--mono); color: var(--muted); margin: 18px 0 6px; }
+  .row { display: grid; grid-template-columns: 14px minmax(0, 1fr) 170px 96px 290px; gap: 4px 12px; padding: 7px 10px;
+         border: 1px solid var(--border); border-radius: 6px; background: var(--row); margin-bottom: 4px; cursor: pointer; }
+  .row:hover { background: var(--row-hover); }
+  .row.stub { opacity: .55; }
+  .row.open { border-color: #34405a; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; }
+  .dot.busy { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.idle { background: var(--yellow); }
+  .body { min-width: 0; }
+  .main-line { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+  .key { font: 600 13px var(--mono); color: var(--accent); white-space: nowrap; text-decoration: none; }
+  a.key:hover { text-decoration: underline; }
+  .topic { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub, .prompts { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub { color: var(--muted); font-family: var(--mono); }
+  .prompts { color: var(--faint); }
+  .dir { font: 12px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 1px; }
+  .when { font-size: 12px; color: var(--muted); white-space: nowrap; padding-top: 1px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; align-content: flex-start; cursor: auto; }
+  .actions input.note { flex: 1 1 100%; }
+  button { background: var(--chip); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 2px 8px;
+           font: inherit; font-size: 12px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .warn { color: var(--yellow); }
+  .details { grid-column: 2 / -1; border-top: 1px dashed var(--border); padding-top: 8px; margin-top: 4px; font-size: 12px; cursor: auto; }
+  .details dl { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 3px 12px; margin: 0 0 8px; }
+  .details dt { color: var(--faint); }
+  .details dd { margin: 0; font-family: var(--mono); word-break: break-all; white-space: pre-line; }
+  .details h3 { font-size: 12px; color: var(--faint); font-weight: 600; margin: 10px 0 4px; }
+  .details ol { margin: 0; padding-left: 20px; }
+  .details li, .details p.prompt { margin: 0 0 4px; white-space: pre-wrap; word-break: break-word; }
+  .suspect { color: var(--faint); }
+  .empty { color: var(--faint); padding: 24px 0; }
+  #toasts { position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 10; }
+  .toast { background: var(--panel); border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; max-width: 460px;
+           word-break: break-all; box-shadow: 0 4px 16px rgba(0, 0, 0, .4); }
+  .toast.err { border-color: var(--red); color: var(--red); }
+  @media (max-width: 980px) {
+    .row { grid-template-columns: 14px minmax(0, 1fr); }
+    .dir, .when, .actions { grid-column: 2; }
+    .actions { justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>Claude Sessions</h1>
+    <input id="q" type="search" placeholder="Search: PROJ-563, branch, directory, prompt text, note…  ( / )" autocomplete="off">
+    <label class="tog"><input id="running" type="checkbox"> running only</label>
+    <label class="tog"><input id="stubs" type="checkbox"> show empty</label>
+    <label class="tog">group by
+      <select id="group">
+        <option value="dir">directory</option>
+        <option value="issue">issue</option>
+        <option value="none">none</option>
+      </select>
+    </label>
+    <span id="count"></span>
+  </div>
+  <div class="chips" id="dirs"></div>
+  <div class="chips" id="statuses"></div>
+</header>
+<div id="banner" hidden></div>
+<main id="list"><p class="empty">Loading…</p></main>
+<div id="toasts"></div>
+<script src="/filter.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
