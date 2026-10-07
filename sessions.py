@@ -16,11 +16,13 @@ WORKTREE_MARK = "/.claude/worktrees/"
 JIRA_KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,9}-\d+\b")
 JIRA_URL_RE = re.compile(r"https?://([a-z0-9-]+)\.atlassian\.net/browse/([A-Z][A-Z0-9]{1,9}-\d+)")
 TITLE_LEADING_KEY_RE = re.compile(r"^\s*([A-Z][A-Z0-9]{1,9})[- ](\d+)\b")
-PASTED_RE = re.compile(r"<pasted_content\b[^>]*>(.*?)</pasted_content>", re.S)
+PASTED_RE = re.compile(r"<pasted_content\b[^>]*>(.*?)</pasted_content\b[^>]*>", re.S)
 SYSTEM_TAG_RE = re.compile(r"^<([a-z][a-z0-9_-]*)[\s>]")
 SKIP_PREFIXES = ("Caveat:", "[Request interrupted")
 SKIP_FLAGS = ("isMeta", "isSidechain", "isCompactSummary", "isVisibleInTranscriptOnly")
 PROMPT_STORE_LIMIT = 2000
+SEARCH_LIMIT = 60_000
+TITLE_PREFIX_RE = re.compile(r"^\s*(?:https?://\S+\s*)?(?:[A-Z][A-Z0-9]{1,9}[- ]\d+\b[\s:–—-]*)?")
 
 
 def encode_cwd(cwd: str) -> str:
@@ -339,3 +341,106 @@ class SessionCache:
             self.lines_parsed += parser.lines - before
         self._entries[path] = _CacheEntry(st.st_mtime_ns, st.st_size, st.st_ino, parser, session)
         return session
+
+
+def cwd_missing(cwd: str) -> bool:
+    """True jen když adresář prokazatelně neexistuje; jiné chyby (např. TCC) = nevíme → False."""
+    try:
+        os.stat(cwd)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def is_title_suspect(s: Session, by_title: dict[tuple[str, str], list[Session]]) -> bool:
+    if not s.title:
+        return False
+    own = set(s.branch_keys) | set(s.url_keys)
+    if own and set(s.title_keys) - own:
+        return True
+    key = s.jira_key
+    if key is None:
+        return False
+    for other in by_title.get((s.project_dir, s.title.strip().lower()), []):
+        if other is not s and other.jira_key is not None and other.jira_key != key:
+            return True
+    return False
+
+
+def topic_for(s: Session, suspect: bool) -> str:
+    if s.title and not suspect:
+        stripped = TITLE_PREFIX_RE.sub("", s.title, count=1).strip()
+        if stripped:
+            return one_line(stripped, 140)
+    if s.prompts:
+        return one_line(s.prompts[0], 140)
+    if s.last_prompt:
+        return one_line(clean_prompt(s.last_prompt), 140)
+    return "(bez popisu)"
+
+
+def _search_text(s: Session) -> str:
+    text = "\n".join(one_line(p, 300) for p in s.prompts)
+    if len(text) > SEARCH_LIMIT:
+        text = one_line(s.prompts[0], 300) + "\n" + text[-SEARCH_LIMIT:]
+    return text
+
+
+def _row(s: Session, older: list[Session], by_title, dev_root: Path, is_missing) -> dict:
+    suspect = is_title_suspect(s, by_title)
+    repo, worktree = split_worktree(s.cwd) if s.cwd else (None, None)
+    warnings = list(s.warnings)
+    if s.cwd and is_missing(s.cwd):
+        warnings.append("cwd-missing")
+    return {
+        "session_id": s.session_id,
+        "cwd": s.cwd,
+        "repo": repo,
+        "worktree": worktree,
+        "display_dir": display_dir(repo, dev_root) if repo else s.project_dir,
+        "branch": s.branch,
+        "branches": s.branches,
+        "jira_key": s.jira_key,
+        "jira_keys": s.jira_keys,
+        "topic": topic_for(s, suspect),
+        "title": s.title,
+        "title_suspect": suspect,
+        "first_ts": s.first_ts,
+        "last_ts": s.last_ts,
+        "prompt_count": len(s.prompts),
+        "is_stub": not s.prompts,
+        "first_prompt": one_line(s.prompts[0], 500) if s.prompts else None,
+        "recent_prompts": [one_line(p, 500) for p in s.prompts[-5:]],
+        "search_text": _search_text(s),
+        "older_copies": [
+            {"session_id": o.session_id, "last_ts": o.last_ts, "prompt_count": len(o.prompts)} for o in older
+        ],
+        "warnings": warnings,
+        "resume_cmd": resume_command(s.cwd, s.session_id) if s.cwd else None,
+    }
+
+
+def build_rows(sessions: list[Session], dev_root: Path = DEV_ROOT, is_missing=cwd_missing) -> tuple[list[dict], dict[str, str]]:
+    hosts: dict[str, str] = {}
+    for s in sessions:
+        for prefix, host in s.hosts.items():
+            hosts.setdefault(prefix, host)
+
+    chains: dict[str, list[Session]] = {}
+    for s in sessions:
+        chains.setdefault(s.root_uuid or f"file:{s.path}", []).append(s)
+    heads: list[tuple[Session, list[Session]]] = []
+    for members in chains.values():
+        members.sort(key=lambda m: (m.last_ts or "", m.mtime), reverse=True)
+        heads.append((members[0], members[1:]))
+
+    by_title: dict[tuple[str, str], list[Session]] = {}
+    for head, _ in heads:
+        if head.title:
+            by_title.setdefault((head.project_dir, head.title.strip().lower()), []).append(head)
+
+    rows = [_row(head, older, by_title, dev_root, is_missing) for head, older in heads]
+    rows.sort(key=lambda r: r["last_ts"] or "", reverse=True)
+    return rows, hosts

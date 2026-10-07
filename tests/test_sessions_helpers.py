@@ -73,6 +73,11 @@ class CleanPromptTest(unittest.TestCase):
         text = 'začni na\n\n<pasted_content id="b0">\nhttps://acme.atlassian.net/browse/PROJ-563\n</pasted_content>'
         self.assertEqual(sessions.clean_prompt(text), "začni na\n\n[vloženo: https://acme.atlassian.net/browse/PROJ-563]")
 
+    def test_closing_tag_with_id_attribute(self):
+        # Reálný formát z transcriptů: i uzavírací tag nese id.
+        text = 'začni na\n<pasted_content id="b032">\nhttps://x/PROJ-563\n</pasted_content id="b032">\na <pasted_content id="c1">B</pasted_content id="c1"> konec'
+        self.assertEqual(sessions.clean_prompt(text), "začni na\n[vloženo: https://x/PROJ-563]\na [vloženo: B] konec")
+
     def test_long_paste_is_truncated(self):
         text = "<pasted_content id='x'>" + "a" * 100 + "</pasted_content>"
         self.assertEqual(sessions.clean_prompt(text), "[vloženo: " + "a" * 60 + "…]")
