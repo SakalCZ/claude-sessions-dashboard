@@ -38,11 +38,11 @@ const tests = {
     assert.strictEqual(F.matches(row({ is_stub: true }), prefs({ showStubs: true })), true);
   },
   "search requires all terms, case insensitive, covers prompts, note, cwd"() {
-    const r = row({ topic: "Contoso GA", search_text: "pusť testy", note: { status: "", note: "Čeká na JH" } });
-    assert.strictEqual(F.matches(r, prefs({ q: "contoso TESTY" })), true);
-    assert.strictEqual(F.matches(r, prefs({ q: "čeká" })), true);
+    const r = row({ topic: "Contoso GA", search_text: "run the tests", note: { status: "", note: "Waiting for JH" } });
+    assert.strictEqual(F.matches(r, prefs({ q: "contoso TESTS" })), true);
+    assert.strictEqual(F.matches(r, prefs({ q: "waiting" })), true);
     assert.strictEqual(F.matches(r, prefs({ q: "shop" })), true);
-    assert.strictEqual(F.matches(r, prefs({ q: "contoso nic" })), false);
+    assert.strictEqual(F.matches(r, prefs({ q: "contoso nothing" })), false);
   },
   "dir filter and running-only apply even when searching"() {
     const r = row({ jira_keys: ["PROJ-1"] });
@@ -78,11 +78,11 @@ const tests = {
   },
   "relTime"() {
     const now = Date.parse("2026-10-07T12:00:00Z");
-    assert.strictEqual(F.relTime("2026-10-07T11:59:30Z", now), "právě teď");
-    assert.strictEqual(F.relTime("2026-10-07T11:55:00Z", now), "před 5 min");
-    assert.strictEqual(F.relTime("2026-10-07T09:00:00Z", now), "před 3 h");
-    assert.strictEqual(F.relTime("2026-10-06T10:00:00Z", now), "včera");
-    assert.strictEqual(F.relTime("2026-10-02T12:00:00Z", now), "před 5 dny");
+    assert.strictEqual(F.relTime("2026-10-07T11:59:30Z", now), "just now");
+    assert.strictEqual(F.relTime("2026-10-07T11:55:00Z", now), "5 min ago");
+    assert.strictEqual(F.relTime("2026-10-07T09:00:00Z", now), "3 h ago");
+    assert.strictEqual(F.relTime("2026-10-06T10:00:00Z", now), "yesterday");
+    assert.strictEqual(F.relTime("2026-10-02T12:00:00Z", now), "5 days ago");
     assert.strictEqual(F.relTime(null, now), "");
     assert.strictEqual(F.relTime("nonsense", now), "");
   },

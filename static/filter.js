@@ -1,17 +1,17 @@
-/* Čisté funkce dashboardu – sdílené prohlížečem (window.DashFilter) a Node testy (module.exports). */
+/* Pure dashboard functions – shared by the browser (window.DashFilter) and the Node tests (module.exports). */
 (function (root, factory) {
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.DashFilter = api;
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  const NO_ISSUE = "bez issue";
+  const NO_ISSUE = "no issue";
 
   function haystack(r) {
     return [
       r.session_id, (r.jira_keys || []).join(" "), r.topic, r.title || "", (r.branches || []).join(" "),
       r.display_dir, r.worktree || "", r.cwd || "", r.search_text || "", (r.note && r.note.note) || "",
-      // Starší kopie (forky) – jejich větve a klíče musí jít najít, i když řádek ukazuje novější kopii.
+      // Older copies (forks) – their branches and keys must be searchable even though the row shows the newer copy.
       ...(r.older_copies || []).map((c) => [c.session_id, (c.jira_keys || []).join(" "), (c.branches || []).join(" ")].join(" ")),
     ].join("\n").toLowerCase();
   }
@@ -21,7 +21,7 @@
     if (f.dirs && f.dirs.length && !f.dirs.includes(r.display_dir)) return false;
     const terms = (f.q || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
     if (terms.length) {
-      // Hledání záměrně ignoruje skrývání podle stavu a stubů: „563“ musí najít i hotovou session.
+      // Search deliberately ignores status and stub hiding: "563" must find a session marked done, too.
       const hay = haystack(r);
       return terms.every((t) => hay.includes(t));
     }
@@ -53,13 +53,13 @@
     const t = Date.parse(ts);
     if (Number.isNaN(t)) return "";
     const s = Math.max(0, ((now === undefined ? Date.now() : now) - t) / 1000);
-    if (s < 60) return "právě teď";
-    if (s < 3600) return `před ${Math.floor(s / 60)} min`;
-    if (s < 86400) return `před ${Math.floor(s / 3600)} h`;
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
     const d = Math.floor(s / 86400);
-    if (d === 1) return "včera";
-    if (d < 30) return `před ${d} dny`;
-    return new Date(t).toLocaleDateString("cs-CZ");
+    if (d === 1) return "yesterday";
+    if (d < 30) return `${d} days ago`;
+    return new Date(t).toLocaleDateString("en-GB");
   }
 
   function dirCounts(rows) {

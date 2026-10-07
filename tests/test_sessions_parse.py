@@ -22,20 +22,20 @@ class ParseSessionTest(unittest.TestCase):
     def test_full_session_fields(self):
         s = self.parse([
             agent_name("Agent title", sid(1)),
-            user("Analyzuj https://acme.atlassian.net/browse/PROJ-369?x=1", ts="2026-09-18T10:00:00.000Z", uuid="u1", cwd=CWD),
+            user("Analyze https://acme.atlassian.net/browse/PROJ-369?x=1", ts="2026-09-18T10:00:00.000Z", uuid="u1", cwd=CWD),
             assistant(ts="2026-09-18T10:00:05.000Z", uuid="a1", cwd=CWD, branch="me/feature/PROJ-604-drop"),
             tool_result(ts="2026-09-18T10:00:06.000Z", uuid="t1", cwd=CWD, branch="me/feature/PROJ-604-drop"),
-            user("hotovo, přepni zpět", ts="2026-09-18T09:59:00.000Z", uuid="u2", cwd=CWD, branch="master"),
+            user("done, switch back", ts="2026-09-18T09:59:00.000Z", uuid="u2", cwd=CWD, branch="master"),
             user("meta", ts="2026-09-18T10:00:07.000Z", uuid="m1", cwd=CWD, isMeta=True),
             custom_title("PROJ-369 Remove legacy column", sid(1)),
-            last_prompt("hotovo, přepni zpět", sid(1)),
+            last_prompt("done, switch back", sid(1)),
         ])
         self.assertEqual(s.session_id, sid(1))
         self.assertEqual(s.cwd, CWD)
         self.assertEqual(s.project_dir, sessions.encode_cwd(CWD))
         self.assertEqual(s.title, "PROJ-369 Remove legacy column")
-        self.assertEqual(s.last_prompt, "hotovo, přepni zpět")
-        self.assertEqual(s.prompts, ["Analyzuj https://acme.atlassian.net/browse/PROJ-369?x=1", "hotovo, přepni zpět"])
+        self.assertEqual(s.last_prompt, "done, switch back")
+        self.assertEqual(s.prompts, ["Analyze https://acme.atlassian.net/browse/PROJ-369?x=1", "done, switch back"])
         self.assertEqual(s.first_ts, "2026-09-18T09:59:00.000Z")
         self.assertEqual(s.last_ts, "2026-09-18T10:00:07.000Z")
         self.assertEqual(s.root_uuid, "u1")
@@ -70,7 +70,7 @@ class ParseSessionTest(unittest.TestCase):
 
     def test_jira_key_fallbacks(self):
         from_url = self.parse([
-            user("viz https://acme.atlassian.net/browse/PROJ-1 a https://example.atlassian.net/browse/OPS-30", ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD),
+            user("see https://acme.atlassian.net/browse/PROJ-1 and https://example.atlassian.net/browse/OPS-30", ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD),
         ], n=1)
         self.assertEqual(from_url.jira_key, "OPS-30")
         self.assertEqual(from_url.hosts, {"PROJ": "acme.atlassian.net", "OPS": "example.atlassian.net"})
@@ -81,14 +81,14 @@ class ParseSessionTest(unittest.TestCase):
         self.assertEqual(none.jira_keys, [])
 
     def test_free_text_keys_are_not_jira(self):
-        s = self.parse([user("viz P1-1, PSR-4 a ARCH-1874", ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD)])
+        s = self.parse([user("see P1-1, PSR-4 and ARCH-1874", ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD)])
         self.assertEqual(s.jira_keys, [])
 
     def test_url_inside_pasted_content_counts(self):
-        s = self.parse([user('začni\n<pasted_content id="b">\nhttps://acme.atlassian.net/browse/PROJ-563\n</pasted_content>',
+        s = self.parse([user('start\n<pasted_content id="b">\nhttps://acme.atlassian.net/browse/PROJ-563\n</pasted_content>',
                              ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD)])
         self.assertEqual(s.jira_key, "PROJ-563")
-        self.assertEqual(s.prompts, ["začni\n[vloženo: https://acme.atlassian.net/browse/PROJ-563]"])
+        self.assertEqual(s.prompts, ["start\n[pasted: https://acme.atlassian.net/browse/PROJ-563]"])
 
     def test_cwd_matching_project_dir_wins(self):
         s = self.parse([
@@ -185,7 +185,7 @@ class SessionCacheTest(unittest.TestCase):
 
     def test_cache_drops_deleted_files_and_ignores_subdirs(self):
         path = self.fake.write_session(CWD, sid(1), [user("a", ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD)])
-        (path.parent / sid(1)).mkdir()  # podsložka se subagenty
+        (path.parent / sid(1)).mkdir()  # subfolder with subagents
         (path.parent / sid(1) / "agent.jsonl").write_text("{}\n")
         self.assertEqual([s.session_id for s in self.cache.load()], [sid(1)])
         os.remove(path)

@@ -1,4 +1,4 @@
-"""Otevření příkazu v novém iTerm2 tabu přes osascript (příkaz jde jako argv, nikdy do zdrojáku skriptu)."""
+"""Open a command in a new iTerm2 tab via osascript (the command is passed as argv, never into the script source)."""
 from __future__ import annotations
 
 import subprocess
@@ -25,13 +25,13 @@ def open_in_iterm(cmd: str, runner=subprocess.run) -> tuple[bool, str | None]:
     try:
         completed = runner(build_argv(cmd), capture_output=True, text=True, timeout=10)
     except subprocess.TimeoutExpired:
-        return False, "iTerm2 neodpověděl do 10 s."
+        return False, "iTerm2 did not respond within 10 s."
     except OSError as e:
-        return False, f"osascript nelze spustit: {e}"
+        return False, f"Cannot run osascript: {e}"
     if completed.returncode != 0:
         err = (completed.stderr or "").strip()
         if "-1743" in err:
-            return False, ("macOS nepovolil ovládání iTerm2. Povol ho v Nastavení systému → "
-                           "Soukromí a zabezpečení → Automatizace, nebo příkaz zkopíruj.")
-        return False, err or f"osascript skončil s kódem {completed.returncode}"
+            return False, ("macOS did not allow controlling iTerm2. Allow it in System Settings → "
+                           "Privacy & Security → Automation, or copy the command instead.")
+        return False, err or f"osascript exited with code {completed.returncode}"
     return True, None

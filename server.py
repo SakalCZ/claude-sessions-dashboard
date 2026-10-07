@@ -1,4 +1,4 @@
-"""Claude Sessions Dashboard: lokální HTTP server (poslouchá jen na 127.0.0.1)."""
+"""Claude Sessions Dashboard: local HTTP server (listens on 127.0.0.1 only)."""
 from __future__ import annotations
 
 import argparse
@@ -52,7 +52,7 @@ class App:
         rows, hosts = sessions.build_rows(self.cache.load(), dev_root=self.dev_root, is_missing=self.is_missing)
         try:
             live_map = self.live_fn(self.claude_dir)
-        except Exception as e:  # poškozený pid soubor apod. – přehled musí fungovat i bez živého stavu
+        except Exception as e:  # a malformed pid file etc. – the overview must work even without live status
             print(f"live: {e!r}", file=sys.stderr, flush=True)
             live_map = {}
         all_notes = self.notes.all()
@@ -80,16 +80,16 @@ class App:
         if inherited and session_id not in self.notes.all():
             fields = {"status": inherited.get("status"), "note": inherited.get("note") or "", **fields}
             entry = self.notes.update(session_id, **fields)
-            # Převzatá poznámka se přesouvá: jinak by se po smazání na hlavním řádku vrátila ze starší kopie.
+            # The inherited note is moved: otherwise clearing it on the head row would bring it back from the older copy.
             self.notes.remove([c["session_id"] for c in row.get("older_copies", [])])
             return entry
         return self.notes.update(session_id, **fields)
 
     def open_session(self, row: dict) -> tuple[int, dict]:
         if not row.get("resume_cmd"):
-            return 409, {"ok": False, "error": "Session nemá známý adresář."}
+            return 409, {"ok": False, "error": "Session has no known directory."}
         if "cwd-missing" in row.get("warnings", []) or self.is_missing(row["cwd"]):
-            return 409, {"ok": False, "error": f"Adresář {row['cwd']} už neexistuje."}
+            return 409, {"ok": False, "error": f"Directory {row['cwd']} no longer exists."}
         ok, error = self.opener(row["resume_cmd"])
         return (200, {"ok": True}) if ok else (502, {"ok": False, "error": error})
 
@@ -102,7 +102,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.server.app
 
     def log_request(self, code="-", size="-"):
-        # Polling každých 10 s by zaplavil log; logujeme jen chyby.
+        # Polling every 10 s would flood the log; log errors only.
         try:
             if int(code) < 400:
                 return
@@ -122,10 +122,10 @@ class Handler(BaseHTTPRequestHandler):
     def _safely(self, handler) -> None:
         try:
             handler()
-        except Exception as e:  # server musí běžet dál a klient dostat odpověď (spec §10)
-            self.log_error("chyba při zpracování %s: %r", self.path, e)
+        except Exception as e:  # the server must keep running and the client must get a response (spec §10)
+            self.log_error("error while handling %s: %r", self.path, e)
             try:
-                self._json({"error": f"interní chyba: {e}"}, 500)
+                self._json({"error": f"internal error: {e}"}, 500)
             except OSError:
                 pass
 
@@ -151,7 +151,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "forbidden origin"}, 403)
         ctype = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
         if ctype != "application/json":
-            return self._json({"error": "Content-Type musí být application/json"}, 403)
+            return self._json({"error": "Content-Type must be application/json"}, 403)
         match = POST_PATH_RE.fullmatch(self.path)
         if not match or not SESSION_ID_RE.match(match.group(2)):
             return self._json({"error": "not found"}, 404)
@@ -161,7 +161,7 @@ class Handler(BaseHTTPRequestHandler):
         action, session_id = match.groups()
         row = self.app.find_row(session_id)
         if row is None:
-            return self._json({"error": "neznámá session"}, 404)
+            return self._json({"error": "unknown session"}, 404)
         if action == "notes":
             fields = {k: body[k] for k in ("status", "note") if k in body}
             try:
@@ -178,20 +178,20 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             length = -1
         if length < 0:
-            self._json({"error": "neplatná Content-Length"}, 400)
+            self._json({"error": "invalid Content-Length"}, 400)
             return None
         if length > MAX_BODY:
-            self.rfile.read(min(length, 1 << 20))  # dočíst, jinak může klient místo odpovědi dostat RST
-            self._json({"error": "tělo požadavku je příliš velké"}, 413)
+            self.rfile.read(min(length, 1 << 20))  # drain it, otherwise the client may get an RST instead of the response
+            self._json({"error": "request body too large"}, 413)
             return None
         raw = self.rfile.read(length) if length else b"{}"
         try:
             body = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
-            self._json({"error": "nevalidní JSON"}, 400)
+            self._json({"error": "invalid JSON"}, 400)
             return None
         if not isinstance(body, dict):
-            self._json({"error": "tělo musí být JSON objekt"}, 400)
+            self._json({"error": "body must be a JSON object"}, 400)
             return None
         return body
 
@@ -235,7 +235,7 @@ def main(argv=None) -> int:
     try:
         httpd = DashboardServer(("127.0.0.1", args.port), app)
     except OSError as e:
-        print(f"Nelze otevřít port {args.port}: {e}", file=sys.stderr, flush=True)
+        print(f"Cannot open port {args.port}: {e}", file=sys.stderr, flush=True)
         return 1
     threading.Thread(target=app.cache.load, name="warmup", daemon=True).start()
     print(f"Claude Sessions Dashboard: http://127.0.0.1:{app.port}/", flush=True)

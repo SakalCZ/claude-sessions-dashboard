@@ -1,4 +1,4 @@
-"""Pomocníci pro testy: falešný ~/.claude adresář s JSONL transcripty a pid soubory."""
+"""Test helpers: a fake ~/.claude directory with JSONL transcripts and pid files."""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def sid(n: int) -> str:
-    """Deterministické id ve tvaru UUID (36 znaků, jen [0-9a-f-])."""
+    """Deterministic UUID-shaped id (36 chars, only [0-9a-f-])."""
     return f"{n:08x}-0000-4000-8000-000000000000"
 
 

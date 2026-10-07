@@ -28,7 +28,7 @@ class ItermTest(unittest.TestCase):
         runner = lambda argv, **kw: subprocess.CompletedProcess(argv, 1, "", "execution error: Not authorized to send Apple events to iTerm2. (-1743)")
         ok, error = iterm.open_in_iterm(CMD, runner=runner)
         self.assertFalse(ok)
-        self.assertIn("Automatizace", error)
+        self.assertIn("Automation", error)
 
     def test_other_error_is_reported(self):
         runner = lambda argv, **kw: subprocess.CompletedProcess(argv, 1, "", "boom")

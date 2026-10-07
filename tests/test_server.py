@@ -21,7 +21,7 @@ class ServerTest(unittest.TestCase):
         Path(self.static.name, "filter.js").write_text("// filter", encoding="utf-8")
         branch = "me/bugfix/PROJ-563-dup"
         self.fake.write_session(CWD, sid(1), [
-            user("Analyzuj https://acme.atlassian.net/browse/PROJ-563", ts="2026-10-01T10:00:00Z", uuid="u1", cwd=CWD, branch=branch),
+            user("Analyze https://acme.atlassian.net/browse/PROJ-563", ts="2026-10-01T10:00:00Z", uuid="u1", cwd=CWD, branch=branch),
             assistant(ts="2026-10-01T10:00:05Z", uuid="a1", cwd=CWD, branch=branch),
         ])
         self.opened = []
@@ -88,10 +88,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(status, 403)
 
     def test_notes_roundtrip(self):
-        status, body = self.request("POST", f"/api/notes/{sid(1)}", {"status": "waiting", "note": "čeká na CR"})
+        status, body = self.request("POST", f"/api/notes/{sid(1)}", {"status": "waiting", "note": "waiting for CR"})
         self.assertEqual(status, 200)
         self.assertEqual(body["note"]["status"], "waiting")
-        self.assertEqual(self.rows()[sid(1)]["note"]["note"], "čeká na CR")
+        self.assertEqual(self.rows()[sid(1)]["note"]["note"], "waiting for CR")
 
     def test_notes_invalid_status(self):
         self.assertEqual(self.request("POST", f"/api/notes/{sid(1)}", {"status": "bogus"})[0], 400)
@@ -125,35 +125,35 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.opened, [f"cd {CWD} && claude --resume {sid(1)}"])
 
     def test_open_failure(self):
-        self.open_result = (False, "iTerm2 neběží")
-        self.assertEqual(self.request("POST", f"/api/open/{sid(1)}", {}), (502, {"ok": False, "error": "iTerm2 neběží"}))
+        self.open_result = (False, "iTerm2 is not running")
+        self.assertEqual(self.request("POST", f"/api/open/{sid(1)}", {}), (502, {"ok": False, "error": "iTerm2 is not running"}))
 
     def test_open_refuses_missing_cwd(self):
         self.missing = True
         status, body = self.request("POST", f"/api/open/{sid(1)}", {})
         self.assertEqual(status, 409)
-        self.assertIn("neexistuje", body["error"])
+        self.assertIn("no longer exists", body["error"])
         self.assertEqual(self.opened, [])
 
     def test_note_inherited_from_older_copy(self):
         self.fake.write_session(CWD, sid(2), [
-            user("Analyzuj https://acme.atlassian.net/browse/PROJ-563", ts="2026-10-01T10:00:00Z", uuid="u1", cwd=CWD),
+            user("Analyze https://acme.atlassian.net/browse/PROJ-563", ts="2026-10-01T10:00:00Z", uuid="u1", cwd=CWD),
         ])
-        self.app.notes.update(sid(2), status="waiting", note="z kopie")
+        self.app.notes.update(sid(2), status="waiting", note="from copy")
         rows = self.rows()
         self.assertEqual(list(rows), [sid(1)])
-        self.assertEqual(rows[sid(1)]["note"]["note"], "z kopie")
-        status, body = self.request("POST", f"/api/notes/{sid(1)}", {"note": "nová"})
+        self.assertEqual(rows[sid(1)]["note"]["note"], "from copy")
+        status, body = self.request("POST", f"/api/notes/{sid(1)}", {"note": "new"})
         self.assertEqual(status, 200)
-        self.assertEqual(body["note"], {"status": "waiting", "note": "nová", "updated_at": body["note"]["updated_at"]})
+        self.assertEqual(body["note"], {"status": "waiting", "note": "new", "updated_at": body["note"]["updated_at"]})
 
 
     def test_open_rechecks_missing_cwd_after_snapshot(self):
-        self.rows()  # snapshot s existujícím adresářem
-        self.missing = True  # adresář smazán mezi refreshem a kliknutím
+        self.rows()  # snapshot while the directory exists
+        self.missing = True  # directory deleted between the refresh and the click
         status, body = self.request("POST", f"/api/open/{sid(1)}", {})
         self.assertEqual(status, 409)
-        self.assertIn("neexistuje", body["error"])
+        self.assertIn("no longer exists", body["error"])
         self.assertEqual(self.opened, [])
 
     def test_sessions_survive_failing_live_fn(self):
@@ -174,7 +174,7 @@ class ServerTest(unittest.TestCase):
 
     def test_inherited_status_can_be_cleared(self):
         self.fake.write_session(CWD, sid(2), [
-            user("Analyzuj https://acme.atlassian.net/browse/PROJ-563", ts="2026-10-01T10:00:00Z", uuid="u1", cwd=CWD),
+            user("Analyze https://acme.atlassian.net/browse/PROJ-563", ts="2026-10-01T10:00:00Z", uuid="u1", cwd=CWD),
         ])
         self.app.notes.update(sid(2), status="done")
         self.assertEqual(self.rows()[sid(1)]["note"]["status"], "done")

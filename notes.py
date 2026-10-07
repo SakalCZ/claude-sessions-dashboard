@@ -1,4 +1,4 @@
-"""Uživatelské stavy a poznámky k sessions; JSON soubor s atomickým zápisem."""
+"""User statuses and notes for sessions; a JSON file with atomic writes."""
 from __future__ import annotations
 
 import contextlib
@@ -34,9 +34,9 @@ class NotesStore:
 
     def update(self, session_id: str, *, status=_UNSET, note=_UNSET) -> dict:
         if status is not _UNSET and status is not None and status not in VALID_STATUSES:
-            raise NotesError(f"neplatný stav: {status!r}")
+            raise NotesError(f"invalid status: {status!r}")
         if note is not _UNSET and not isinstance(note, str):
-            raise NotesError("poznámka musí být text")
+            raise NotesError("note must be a string")
         with self._lock:
             data = self._read()
             entry = dict(data.get(session_id) or {})

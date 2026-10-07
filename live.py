@@ -1,4 +1,4 @@
-"""Detekce běžících Claude Code instancí z ~/.claude/sessions/<pid>.json."""
+"""Detect running Claude Code instances from ~/.claude/sessions/<pid>.json."""
 from __future__ import annotations
 
 import json
@@ -21,7 +21,7 @@ def parse_ps_output(out: str) -> dict[int, str]:
 
 
 def ps_lstart(pids: list[int]) -> dict[int, str]:
-    """Start procesů ve stejném formátu jako `procStart` v pid souborech (C locale, UTC)."""
+    """Process start times in the same format as `procStart` in the pid files (C locale, UTC)."""
     if not pids:
         return {}
     env = dict(os.environ, LC_ALL="C", TZ="UTC")
@@ -32,7 +32,7 @@ def ps_lstart(pids: list[int]) -> dict[int, str]:
         )
     except (OSError, subprocess.SubprocessError):
         return {}
-    # ps vrací kód 1, když některý pid neexistuje; výstup pro živé pid je i tak platný.
+    # ps exits with 1 when some pid does not exist; the output for live pids is still valid.
     return parse_ps_output(completed.stdout)
 
 

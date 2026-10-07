@@ -19,21 +19,21 @@ class NotesStoreTest(unittest.TestCase):
         self.assertEqual(self.store.all(), {})
 
     def test_update_persists(self):
-        entry = self.store.update("s1", status="waiting", note="čeká na CR")
+        entry = self.store.update("s1", status="waiting", note="waiting for CR")
         self.assertEqual(entry["status"], "waiting")
-        self.assertEqual(entry["note"], "čeká na CR")
+        self.assertEqual(entry["note"], "waiting for CR")
         self.assertTrue(entry["updated_at"].endswith("Z"))
         reloaded = notes.NotesStore(self.path).all()
-        self.assertEqual(reloaded["s1"]["note"], "čeká na CR")
+        self.assertEqual(reloaded["s1"]["note"], "waiting for CR")
         raw = json.loads(self.path.read_text(encoding="utf-8"))
         self.assertEqual(raw["version"], 1)
 
     def test_partial_update_keeps_other_field(self):
         self.store.update("s1", status="active")
-        self.store.update("s1", note="poznámka")
+        self.store.update("s1", note="note text")
         self.assertEqual(self.store.all()["s1"]["status"], "active")
         self.store.update("s1", status="done")
-        self.assertEqual(self.store.all()["s1"]["note"], "poznámka")
+        self.assertEqual(self.store.all()["s1"]["note"], "note text")
 
     def test_validation(self):
         with self.assertRaises(notes.NotesError):
@@ -56,7 +56,7 @@ class NotesStoreTest(unittest.TestCase):
     def test_remove_entries(self):
         self.store.update("s1", status="done")
         self.store.update("s2", note="x")
-        self.store.remove(["s1", "neni"])
+        self.store.remove(["s1", "missing"])
         self.assertEqual(list(self.store.all()), ["s2"])
 
     def test_corrupt_file_is_backed_up(self):

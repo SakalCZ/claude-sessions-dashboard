@@ -2,72 +2,72 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Lokální webový dashboard (http://127.0.0.1:7333), který z `~/.claude` vypíše jeden řádek na Claude Code session (adresář, Jira issue / téma, větev, poslední prompty, živý stav, vlastní poznámka) a umí session obnovit (kopírovat `cd … && claude --resume …` nebo otevřít v iTerm2).
+**Goal:** A local web dashboard (http://127.0.0.1:7333) that lists one row per Claude Code session from `~/.claude` (directory, Jira issue / topic, branch, recent prompts, live status, custom note) and can resume a session (copy `cd … && claude --resume …` or open it in iTerm2).
 
-**Architecture:** Python stdlib HTTP server (`ThreadingHTTPServer`) s moduly: `sessions.py` (parsování JSONL + cache podle mtime), `live.py` (běžící instance z `~/.claude/sessions`), `notes.py` (poznámky v JSON, atomický zápis), `iterm.py` (osascript). Frontend je statické HTML + vanilla JS (`filter.js` čisté funkce, `app.js` DOM). Běh přes launchd z kopie v `~/Library/Application Support/claude-dashboard/app/`.
+**Architecture:** Python stdlib HTTP server (`ThreadingHTTPServer`) with modules: `sessions.py` (JSONL parsing + mtime-based cache), `live.py` (running instances from `~/.claude/sessions`), `notes.py` (notes in JSON, atomic write), `iterm.py` (osascript). The frontend is static HTML + vanilla JS (`filter.js` pure functions, `app.js` DOM). Runs under launchd from a copy in `~/Library/Application Support/claude-dashboard/app/`.
 
-**Tech Stack:** Python 3 (stdlib; na stroji 3.14 v `/usr/local/bin/python3`), unittest, vanilla JS, Node (jen pro test `filter.js`, na stroji v16), launchd, AppleScript (iTerm2).
+**Tech Stack:** Python 3 (stdlib; 3.14 in `/usr/local/bin/python3` on this machine), unittest, vanilla JS, Node (only for the `filter.js` test, v16 on this machine), launchd, AppleScript (iTerm2).
 
 **Spec:** `docs/superpowers/specs/2026-10-07-claude-sessions-dashboard-design.md`
 
 ## Global Constraints
 
-- Jen standardní knihovna Pythonu, žádné pip závislosti. Kód musí běžet na Pythonu ≥ 3.10 (`from __future__ import annotations` v každém modulu).
-- Server binduje **výhradně `127.0.0.1`**. Výchozí port je `7333`, přepisuje se `--port` nebo env `CLAUDE_DASHBOARD_PORT`.
-- Výchozí cesty:
+- Python standard library only, no pip dependencies. The code must run on Python ≥ 3.10 (`from __future__ import annotations` in every module).
+- The server binds **exclusively to `127.0.0.1`**. The default port is `7333`, overridable with `--port` or env `CLAUDE_DASHBOARD_PORT`.
+- Default paths:
   - claude dir `~/.claude`,
   - data dir `~/Library/Application Support/claude-dashboard`,
   - log `~/Library/Logs/claude-dashboard.log`,
   - launchd label `local.claude-sessions-dashboard`,
-  - nasazená aplikace `~/Library/Application Support/claude-dashboard/app/`.
-- Do `~/.claude` se **nikdy nezapisuje**, jen čte.
-- Všechny požadavky (i GET) kontrolují `Host` ∈ {`127.0.0.1:<port>`, `localhost:<port>`}. POST navíc `Content-Type: application/json` a `Origin` (pokud je).
-- UI texty jsou česky. Frontend nesmí používat `innerHTML`, `outerHTML`, `insertAdjacentHTML` ani `document.write`.
-- Bez externích JS/CSS knihoven a CDN.
-- Testy se spouští z kořene repa: `python3 -m unittest discover -s tests -t . -v`. Ten zahrnuje i `node tests/js/test_filter.js`, pokud je `node` na PATH.
-- Každý commit message končí řádkem `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-- Pracovní adresář: `/Users/me/Documents/Development/agent-orgestrator` (git repo, větev `master`, bez remote).
+  - deployed application `~/Library/Application Support/claude-dashboard/app/`.
+- **Never** write to `~/.claude`, only read.
+- All requests (including GET) check `Host` ∈ {`127.0.0.1:<port>`, `localhost:<port>`}. POST additionally checks `Content-Type: application/json` and `Origin` (if present).
+- UI texts are in English. The frontend must not use `innerHTML`, `outerHTML`, `insertAdjacentHTML` or `document.write`.
+- No external JS/CSS libraries or CDNs.
+- Tests are run from the repo root: `python3 -m unittest discover -s tests -t . -v`. That also includes `node tests/js/test_filter.js` if `node` is on PATH.
+- Every commit message ends with the line `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- Working directory: `/Users/me/Documents/Development/agent-orgestrator` (git repo, branch `master`, no remote).
 
 ## Review Focus
 
-1. Hledání „563“, když je session označená „hotovo“, „archiv“ nebo je to stub: uživatel čeká, že ji najde. Hledání proto ruší skrývání podle stavu a stubů. Test je v Task 8 (`search finds done session by jira number`, `search finds stub`).
-2. Cizí web s DNS rebindingem (hlavička `Host: evil.example:7333`) zkusí GET `/api/sessions`. Musí dostat 403, transcripty nesmí odejít. Test je v Task 7 (`test_get_rejects_foreign_host`).
-3. Prompt obsahuje HTML (`<img onerror=…>`, `<pasted_content>`). V UI se musí zobrazit jako text. Pokrývá to statický test zákazu `innerHTML` v Task 8 a ruční kontrola s XSS fixture v Task 8, krok 8.
-4. Adresář session už neexistuje (smazaný worktree). Řádek musí mít ⚠ a „Otevřít“ musí vrátit srozumitelnou chybu, ne prázdný iTerm tab s chybou `cd`. Testy jsou v Task 3 (`test_cwd_missing_warning`) a Task 7 (`test_open_refuses_missing_cwd`).
-5. Session se právě zapisuje: poslední řádek JSONL je useknutý a soubor mezi refreshi roste. Řádek se musí zobrazit a cache se musí přepočítat. Testy jsou v Task 2 (`test_truncated_last_line_is_skipped`, `test_cache_reparses_changed_file`).
+1. Searching for "563" when the session is marked "done", "archived" or is a stub: the user expects to find it. Search therefore overrides status and stub hiding. The tests are in Task 8 (`search finds done session by jira number`, `search finds stub`).
+2. A foreign website using DNS rebinding (header `Host: evil.example:7333`) tries GET `/api/sessions`. It must get 403, and transcripts must not leak. The test is in Task 7 (`test_get_rejects_foreign_host`).
+3. A prompt contains HTML (`<img onerror=…>`, `<pasted_content>`). The UI must show it as text. This is covered by the static `innerHTML` ban test in Task 8 and a manual check with an XSS fixture in Task 8, step 8.
+4. The session directory no longer exists (deleted worktree). The row must show ⚠ and "Open" must return an understandable error, not an empty iTerm tab with a `cd` error. The tests are in Task 3 (`test_cwd_missing_warning`) and Task 7 (`test_open_refuses_missing_cwd`).
+5. The session is being written right now: the last JSONL line is truncated and the file grows between refreshes. The line must be shown and the cache must be recomputed. The tests are in Task 2 (`test_truncated_last_line_is_skipped`, `test_cache_reparses_changed_file`).
 
 ---
 
 ## File Structure
 
-| Soubor | Odpovědnost |
+| File | Responsibility |
 |---|---|
-| `sessions.py` | Čisté helpery (prompt filtr, Jira, worktree, display dir), `Session` + `parse_session`, `SessionCache`, `build_rows` (forky, podezřelé titulky, téma, řádek). |
-| `live.py` | `get_live(claude_dir, ps=...)`: mapa `sessionId → živý stav`. |
-| `notes.py` | `NotesStore`: čtení a atomický zápis `notes.json`, validace. |
-| `iterm.py` | `open_in_iterm(cmd, runner=...)`: AppleScript přes osascript s argv. |
-| `server.py` | `App` (skládá data, akce), `Handler` (HTTP + bezpečnostní kontroly), `DashboardServer`, `main()`. |
-| `static/index.html` | Markup a CSS. |
-| `static/filter.js` | Čisté funkce `matches`, `groupRows`, `relTime`, `dirCounts` (UMD: prohlížeč i Node). |
-| `static/app.js` | Vykreslení, události, volání API. |
-| `launchd/install.sh`, `launchd/uninstall.sh` | Nasazení kopie, plist, `launchctl`. |
-| `tests/helpers.py` | `FakeClaude` + builder záznamů. |
-| `tests/test_*.py`, `tests/js/test_filter.js` | Testy. |
-| `README.md` | Použití. |
+| `sessions.py` | Pure helpers (prompt filter, Jira, worktree, display dir), `Session` + `parse_session`, `SessionCache`, `build_rows` (forks, suspect titles, topic, row). |
+| `live.py` | `get_live(claude_dir, ps=...)`: map `sessionId → live status`. |
+| `notes.py` | `NotesStore`: reading and atomic writing of `notes.json`, validation. |
+| `iterm.py` | `open_in_iterm(cmd, runner=...)`: AppleScript via osascript with argv. |
+| `server.py` | `App` (assembles data, actions), `Handler` (HTTP + security checks), `DashboardServer`, `main()`. |
+| `static/index.html` | Markup and CSS. |
+| `static/filter.js` | Pure functions `matches`, `groupRows`, `relTime`, `dirCounts` (UMD: browser and Node). |
+| `static/app.js` | Rendering, events, API calls. |
+| `launchd/install.sh`, `launchd/uninstall.sh` | Deploying the copy, plist, `launchctl`. |
+| `tests/helpers.py` | `FakeClaude` + record builders. |
+| `tests/test_*.py`, `tests/js/test_filter.js` | Tests. |
+| `README.md` | Usage. |
 
 ---
 
-### Task 1: Kostra projektu + čisté helpery v `sessions.py`
+### Task 1: Project skeleton + pure helpers in `sessions.py`
 
 **Files:**
-- Create: `tests/__init__.py` (prázdný)
+- Create: `tests/__init__.py` (empty)
 - Create: `tests/test_sessions_helpers.py`
 - Create: `sessions.py`
 
 **Interfaces:**
-- Produces (v `sessions.py`):
+- Produces (in `sessions.py`):
   - `DEV_ROOT: Path` (`~/Documents/Development`)
-  - `JIRA_KEY_RE`, `JIRA_URL_RE` (kompilované regexy)
+  - `JIRA_KEY_RE`, `JIRA_URL_RE` (compiled regexes)
   - `encode_cwd(cwd: str) -> str`
   - `prompt_text(rec: dict) -> str | None`
   - `clean_prompt(text: str) -> str`
@@ -77,9 +77,9 @@
   - `display_dir(path: str, dev_root: Path = DEV_ROOT) -> str`
   - `resume_command(cwd: str, session_id: str) -> str`
 
-- [ ] **Step 1: Napsat failing testy**
+- [ ] **Step 1: Write failing tests**
 
-`tests/__init__.py` — prázdný soubor.
+`tests/__init__.py` — empty file.
 
 `tests/test_sessions_helpers.py`:
 
@@ -109,7 +109,7 @@ class EncodeCwdTest(unittest.TestCase):
 
 class PromptTextTest(unittest.TestCase):
     def test_plain_string_prompt(self):
-        self.assertEqual(sessions.prompt_text(rec_user("  Analyzuj PROJ-563 \n")), "Analyzuj PROJ-563")
+        self.assertEqual(sessions.prompt_text(rec_user("  Analyze PROJ-563 \n")), "Analyze PROJ-563")
 
     def test_non_user_records_are_ignored(self):
         self.assertIsNone(sessions.prompt_text({"type": "assistant", "message": {"content": "x"}}))
@@ -117,15 +117,15 @@ class PromptTextTest(unittest.TestCase):
     def test_flagged_records_are_ignored(self):
         for flag in ("isMeta", "isSidechain", "isCompactSummary", "isVisibleInTranscriptOnly"):
             with self.subTest(flag=flag):
-                self.assertIsNone(sessions.prompt_text(rec_user("ahoj", **{flag: True})))
+                self.assertIsNone(sessions.prompt_text(rec_user("hello", **{flag: True})))
 
     def test_tool_results_are_ignored(self):
         content = [{"type": "tool_result", "tool_use_id": "t", "content": "ok"}]
         self.assertIsNone(sessions.prompt_text(rec_user(content)))
 
     def test_list_with_text_and_image_is_a_prompt(self):
-        content = [{"type": "image", "source": {}}, {"type": "text", "text": "[Image #3] Stále to nejde"}]
-        self.assertEqual(sessions.prompt_text(rec_user(content)), "[Image #3] Stále to nejde")
+        content = [{"type": "image", "source": {}}, {"type": "text", "text": "[Image #3] Still not working"}]
+        self.assertEqual(sessions.prompt_text(rec_user(content)), "[Image #3] Still not working")
 
     def test_system_tags_are_ignored(self):
         for text in (
@@ -156,15 +156,15 @@ class PromptTextTest(unittest.TestCase):
 
 class CleanPromptTest(unittest.TestCase):
     def test_pasted_content_is_replaced_by_snippet(self):
-        text = 'začni na\n\n<pasted_content id="b0">\nhttps://acme.atlassian.net/browse/PROJ-563\n</pasted_content>'
-        self.assertEqual(sessions.clean_prompt(text), "začni na\n\n[vloženo: https://acme.atlassian.net/browse/PROJ-563]")
+        text = 'start on\n\n<pasted_content id="b0">\nhttps://acme.atlassian.net/browse/PROJ-563\n</pasted_content>'
+        self.assertEqual(sessions.clean_prompt(text), "start on\n\n[pasted: https://acme.atlassian.net/browse/PROJ-563]")
 
     def test_long_paste_is_truncated(self):
         text = "<pasted_content id='x'>" + "a" * 100 + "</pasted_content>"
-        self.assertEqual(sessions.clean_prompt(text), "[vloženo: " + "a" * 60 + "…]")
+        self.assertEqual(sessions.clean_prompt(text), "[pasted: " + "a" * 60 + "…]")
 
     def test_empty_paste(self):
-        self.assertEqual(sessions.clean_prompt("x <pasted_content id='x'> </pasted_content>"), "x [vloženo]")
+        self.assertEqual(sessions.clean_prompt("x <pasted_content id='x'> </pasted_content>"), "x [pasted]")
 
 
 class OneLineTest(unittest.TestCase):
@@ -177,7 +177,7 @@ class TitleKeysTest(unittest.TestCase):
     def test_keys_with_dash_and_leading_space_variant(self):
         self.assertEqual(sessions.title_keys("PROJ 548 Optimize DB queries"), ["PROJ-548"])
         self.assertEqual(sessions.title_keys("https://acme.atlassian.net/browse/PROJ-369 Remove"), ["PROJ-369"])
-        self.assertEqual(sessions.title_keys("OPS-218, OPS-207, OPS-238 vývoj"), ["OPS-218", "OPS-207", "OPS-238"])
+        self.assertEqual(sessions.title_keys("OPS-218, OPS-207, OPS-238 development"), ["OPS-218", "OPS-207", "OPS-238"])
         self.assertEqual(sessions.title_keys("Partner Audit"), [])
 
 
@@ -203,17 +203,17 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Spustit testy, musí selhat**
+- [ ] **Step 2: Run the tests, they must fail**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
 Expected: FAIL / ERROR `ModuleNotFoundError: No module named 'sessions'`
 
-- [ ] **Step 3: Implementovat helpery**
+- [ ] **Step 3: Implement the helpers**
 
 `sessions.py`:
 
 ```python
-"""Parsování Claude Code transcriptů (~/.claude/projects/*/*.jsonl) na řádky dashboardu."""
+"""Parsing of Claude Code transcripts (~/.claude/projects/*/*.jsonl) into dashboard rows."""
 from __future__ import annotations
 
 import re
@@ -233,12 +233,12 @@ SKIP_FLAGS = ("isMeta", "isSidechain", "isCompactSummary", "isVisibleInTranscrip
 
 
 def encode_cwd(cwd: str) -> str:
-    """Stejné kódování, jakým Claude Code pojmenovává složky v ~/.claude/projects."""
+    """Same encoding Claude Code uses to name folders in ~/.claude/projects."""
     return re.sub(r"[^A-Za-z0-9]", "-", cwd)
 
 
 def prompt_text(rec: dict) -> str | None:
-    """Text skutečného promptu uživatele, nebo None pro meta/systémové záznamy a tool results."""
+    """Text of a real user prompt, or None for meta/system records and tool results."""
     if rec.get("type") != "user" or any(rec.get(flag) for flag in SKIP_FLAGS):
         return None
     content = (rec.get("message") or {}).get("content")
@@ -264,13 +264,13 @@ def prompt_text(rec: dict) -> str | None:
 
 
 def clean_prompt(text: str) -> str:
-    """Nahradí vložený obsah krátkou ukázkou; řádkování ponechá."""
+    """Replaces pasted content with a short snippet; keeps line breaks."""
 
     def replace(match: re.Match) -> str:
         flat = " ".join(match.group(1).split())
         if not flat:
-            return "[vloženo]"
-        return f"[vloženo: {flat[:60]}{'…' if len(flat) > 60 else ''}]"
+            return "[pasted]"
+        return f"[pasted: {flat[:60]}{'…' if len(flat) > 60 else ''}]"
 
     return PASTED_RE.sub(replace, text)
 
@@ -313,10 +313,10 @@ def resume_command(cwd: str, session_id: str) -> str:
     return f"cd {shlex.quote(cwd)} && claude --resume {shlex.quote(session_id)}"
 ```
 
-- [ ] **Step 4: Spustit testy, musí projít**
+- [ ] **Step 4: Run the tests, they must pass**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
-Expected: všechny testy v `test_sessions_helpers` OK.
+Expected: all tests in `test_sessions_helpers` OK.
 
 - [ ] **Step 5: Commit**
 
@@ -329,31 +329,31 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 2: `parse_session` + `SessionCache` + testovací `FakeClaude`
+### Task 2: `parse_session` + `SessionCache` + test `FakeClaude`
 
 **Files:**
 - Create: `tests/helpers.py`
 - Create: `tests/test_sessions_parse.py`
-- Modify: `sessions.py` (přidat importy, `Session`, `parse_session`, `SessionCache`)
+- Modify: `sessions.py` (add imports, `Session`, `parse_session`, `SessionCache`)
 
 **Interfaces:**
-- Consumes: helpery z Task 1.
-- Produces (v `sessions.py`):
-  - `@dataclass Session` s poli `session_id, path, project_dir, mtime, cwd, branches, title, last_prompt, prompts, first_ts, last_ts, root_uuid, url_keys, hosts, warnings`.
-  - Vlastnosti `branch`, `branch_keys`, `title_keys`, `jira_key`, `jira_keys`.
+- Consumes: helpers from Task 1.
+- Produces (in `sessions.py`):
+  - `@dataclass Session` with fields `session_id, path, project_dir, mtime, cwd, branches, title, last_prompt, prompts, first_ts, last_ts, root_uuid, url_keys, hosts, warnings`.
+  - Properties `branch`, `branch_keys`, `title_keys`, `jira_key`, `jira_keys`.
   - `parse_session(path: Path) -> Session`
-  - `class SessionCache(claude_dir: Path)` s `.load() -> list[Session]` a čítačem `.parse_count: int`.
-- Produces (v `tests/helpers.py`):
+  - `class SessionCache(claude_dir: Path)` with `.load() -> list[Session]` and the counter `.parse_count: int`.
+- Produces (in `tests/helpers.py`):
   - `sid(n) -> str` (UUID-like id),
-  - `FakeClaude()` s `.root`, `.write_session(cwd, session_id, records, project_dir=None) -> Path`, `.write_pid(pid, data)`, `.cleanup()`,
-  - buildery `user(...)`, `assistant(...)`, `tool_result(...)`, `custom_title(...)`, `agent_name(...)`, `last_prompt(...)`.
+  - `FakeClaude()` with `.root`, `.write_session(cwd, session_id, records, project_dir=None) -> Path`, `.write_pid(pid, data)`, `.cleanup()`,
+  - builders `user(...)`, `assistant(...)`, `tool_result(...)`, `custom_title(...)`, `agent_name(...)`, `last_prompt(...)`.
 
-- [ ] **Step 1: Napsat helpery pro testy**
+- [ ] **Step 1: Write the test helpers**
 
 `tests/helpers.py`:
 
 ```python
-"""Pomocníci pro testy: falešný ~/.claude adresář s JSONL transcripty a pid soubory."""
+"""Test helpers: a fake ~/.claude directory with JSONL transcripts and pid files."""
 from __future__ import annotations
 
 import json
@@ -363,7 +363,7 @@ from pathlib import Path
 
 
 def sid(n: int) -> str:
-    """Deterministické id ve tvaru UUID (36 znaků, jen [0-9a-f-])."""
+    """Deterministic id shaped like a UUID (36 characters, only [0-9a-f-])."""
     return f"{n:08x}-0000-4000-8000-000000000000"
 
 
@@ -419,7 +419,7 @@ def last_prompt(text: str, session_id: str) -> dict:
     return {"type": "last-prompt", "lastPrompt": text, "sessionId": session_id}
 ```
 
-- [ ] **Step 2: Napsat failing testy**
+- [ ] **Step 2: Write failing tests**
 
 `tests/test_sessions_parse.py`:
 
@@ -447,20 +447,20 @@ class ParseSessionTest(unittest.TestCase):
     def test_full_session_fields(self):
         s = self.parse([
             agent_name("Agent title", sid(1)),
-            user("Analyzuj https://acme.atlassian.net/browse/PROJ-369?x=1", ts="2026-09-18T10:00:00.000Z", uuid="u1", cwd=CWD),
+            user("Analyze https://acme.atlassian.net/browse/PROJ-369?x=1", ts="2026-09-18T10:00:00.000Z", uuid="u1", cwd=CWD),
             assistant(ts="2026-09-18T10:00:05.000Z", uuid="a1", cwd=CWD, branch="me/feature/PROJ-604-drop"),
             tool_result(ts="2026-09-18T10:00:06.000Z", uuid="t1", cwd=CWD, branch="me/feature/PROJ-604-drop"),
-            user("hotovo, přepni zpět", ts="2026-09-18T09:59:00.000Z", uuid="u2", cwd=CWD, branch="master"),
+            user("done, switch back", ts="2026-09-18T09:59:00.000Z", uuid="u2", cwd=CWD, branch="master"),
             user("meta", ts="2026-09-18T10:00:07.000Z", uuid="m1", cwd=CWD, isMeta=True),
             custom_title("PROJ-369 Remove legacy column", sid(1)),
-            last_prompt("hotovo, přepni zpět", sid(1)),
+            last_prompt("done, switch back", sid(1)),
         ])
         self.assertEqual(s.session_id, sid(1))
         self.assertEqual(s.cwd, CWD)
         self.assertEqual(s.project_dir, sessions.encode_cwd(CWD))
         self.assertEqual(s.title, "PROJ-369 Remove legacy column")
-        self.assertEqual(s.last_prompt, "hotovo, přepni zpět")
-        self.assertEqual(s.prompts, ["Analyzuj https://acme.atlassian.net/browse/PROJ-369?x=1", "hotovo, přepni zpět"])
+        self.assertEqual(s.last_prompt, "done, switch back")
+        self.assertEqual(s.prompts, ["Analyze https://acme.atlassian.net/browse/PROJ-369?x=1", "done, switch back"])
         self.assertEqual(s.first_ts, "2026-09-18T09:59:00.000Z")
         self.assertEqual(s.last_ts, "2026-09-18T10:00:07.000Z")
         self.assertEqual(s.root_uuid, "u1")
@@ -495,7 +495,7 @@ class ParseSessionTest(unittest.TestCase):
 
     def test_jira_key_fallbacks(self):
         from_url = self.parse([
-            user("viz https://acme.atlassian.net/browse/PROJ-1 a https://example.atlassian.net/browse/OPS-30", ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD),
+            user("see https://acme.atlassian.net/browse/PROJ-1 and https://example.atlassian.net/browse/OPS-30", ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD),
         ], n=1)
         self.assertEqual(from_url.jira_key, "OPS-30")
         self.assertEqual(from_url.hosts, {"PROJ": "acme.atlassian.net", "OPS": "example.atlassian.net"})
@@ -506,14 +506,14 @@ class ParseSessionTest(unittest.TestCase):
         self.assertEqual(none.jira_keys, [])
 
     def test_free_text_keys_are_not_jira(self):
-        s = self.parse([user("viz P1-1, PSR-4 a ARCH-1874", ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD)])
+        s = self.parse([user("see P1-1, PSR-4 and ARCH-1874", ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD)])
         self.assertEqual(s.jira_keys, [])
 
     def test_url_inside_pasted_content_counts(self):
-        s = self.parse([user('začni\n<pasted_content id="b">\nhttps://acme.atlassian.net/browse/PROJ-563\n</pasted_content>',
+        s = self.parse([user('start\n<pasted_content id="b">\nhttps://acme.atlassian.net/browse/PROJ-563\n</pasted_content>',
                              ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD)])
         self.assertEqual(s.jira_key, "PROJ-563")
-        self.assertEqual(s.prompts, ["začni\n[vloženo: https://acme.atlassian.net/browse/PROJ-563]"])
+        self.assertEqual(s.prompts, ["start\n[pasted: https://acme.atlassian.net/browse/PROJ-563]"])
 
     def test_cwd_matching_project_dir_wins(self):
         s = self.parse([
@@ -533,14 +533,14 @@ class ParseSessionTest(unittest.TestCase):
         self.assertIsNone(s.cwd)
         self.assertEqual(s.warnings, ["no-cwd"])
         self.assertEqual(s.prompts, [])
-        self.assertIsNotNone(s.last_ts)  # fallback z mtime
+        self.assertIsNotNone(s.last_ts)  # fallback from mtime
         self.assertTrue(s.last_ts.endswith("Z"))
 
     def test_truncated_last_line_is_skipped(self):
         s = self.parse([
             "not json at all",
             user("a", ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD),
-            '{"type": "user", "message": {"content": "useknut',
+            '{"type": "user", "message": {"content": "truncat',
         ])
         self.assertEqual(s.prompts, ["a"])
 
@@ -575,7 +575,7 @@ class SessionCacheTest(unittest.TestCase):
 
     def test_cache_drops_deleted_files_and_ignores_subdirs(self):
         path = self.fake.write_session(CWD, sid(1), [user("a", ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD)])
-        (path.parent / sid(1)).mkdir()  # podsložka se subagenty
+        (path.parent / sid(1)).mkdir()  # subfolder with subagents
         (path.parent / sid(1) / "agent.jsonl").write_text("{}\n")
         self.assertEqual([s.session_id for s in self.cache.load()], [sid(1)])
         os.remove(path)
@@ -589,14 +589,14 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 3: Spustit testy, musí selhat**
+- [ ] **Step 3: Run the tests, they must fail**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
-Expected: ERROR `AttributeError: module 'sessions' has no attribute 'parse_session'` (a `SessionCache`)
+Expected: ERROR `AttributeError: module 'sessions' has no attribute 'parse_session'` (and `SessionCache`)
 
-- [ ] **Step 4: Implementovat**
+- [ ] **Step 4: Implement**
 
-V `sessions.py` rozšířit importy na začátku souboru (nahradit dosavadní blok importů):
+In `sessions.py`, extend the imports at the top of the file (replace the existing import block):
 
 ```python
 import json
@@ -609,13 +609,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 ```
 
-Pod konstanty přidat:
+Add below the constants:
 
 ```python
 PROMPT_STORE_LIMIT = 2000
 ```
 
-Na konec `sessions.py` přidat:
+Add at the end of `sessions.py`:
 
 ```python
 def _unique(items) -> list:
@@ -745,7 +745,7 @@ def parse_session(path: Path) -> Session:
 
 
 class SessionCache:
-    """Drží rozparsované sessions; znovu parsuje jen soubory se změněným (mtime_ns, size)."""
+    """Holds parsed sessions; re-parses only files with a changed (mtime_ns, size)."""
 
     def __init__(self, claude_dir: Path) -> None:
         self.projects_dir = Path(claude_dir) / "projects"
@@ -785,12 +785,12 @@ class SessionCache:
             return result
 ```
 
-- [ ] **Step 5: Spustit testy, musí projít**
+- [ ] **Step 5: Run the tests, they must pass**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
-Expected: všechny testy OK.
+Expected: all tests OK.
 
-- [ ] **Step 6: Rychlá kontrola na reálných datech (jen čtení)**
+- [ ] **Step 6: Quick check on real data (read-only)**
 
 Run:
 ```bash
@@ -802,7 +802,7 @@ for s in sorted(ss, key=lambda s: s.last_ts or '', reverse=True)[:8]:
     print(s.session_id[:8], s.cwd, s.branch, s.jira_key, len(s.prompts), s.warnings)
 "
 ```
-Expected: kolem 46+ sessions za pár sekund. U `bd117c05` je `jira_key` `PROJ-563` a cwd `/Users/me/Documents/Development/acme/shop`. Žádná výjimka.
+Expected: around 46+ sessions in a few seconds. For `bd117c05`, `jira_key` is `PROJ-563` and cwd is `/Users/me/Documents/Development/acme/shop`. No exception.
 
 - [ ] **Step 7: Commit**
 
@@ -815,22 +815,22 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 3: `build_rows`: forky, podezřelé titulky, téma, řádek
+### Task 3: `build_rows`: forks, suspect titles, topic, row
 
 **Files:**
 - Create: `tests/test_sessions_rows.py`
-- Modify: `sessions.py` (přidat `SEARCH_LIMIT`, `TITLE_PREFIX_RE`, `cwd_missing`, `is_title_suspect`, `topic_for`, `build_rows`)
+- Modify: `sessions.py` (add `SEARCH_LIMIT`, `TITLE_PREFIX_RE`, `cwd_missing`, `is_title_suspect`, `topic_for`, `build_rows`)
 
 **Interfaces:**
-- Consumes: `Session`, `parse_session`, helpery (Task 1–2), `tests.helpers`.
+- Consumes: `Session`, `parse_session`, helpers (Task 1–2), `tests.helpers`.
 - Produces:
   - `cwd_missing(cwd: str) -> bool`
-  - `build_rows(sessions: list[Session], dev_root: Path = DEV_ROOT, is_missing=cwd_missing) -> tuple[list[dict], dict[str, str]]` vrací `(rows, jira_hosts)`.
-  - Každý řádek je dict s klíči: `session_id, cwd, repo, worktree, display_dir, branch, branches, jira_key, jira_keys, topic, title, title_suspect, first_ts, last_ts, prompt_count, is_stub, first_prompt, recent_prompts, search_text, older_copies, warnings, resume_cmd`.
-  - `older_copies` je list dictů `{session_id, last_ts, prompt_count}`.
-  - Řádky jsou seřazené podle `last_ts` sestupně.
+  - `build_rows(sessions: list[Session], dev_root: Path = DEV_ROOT, is_missing=cwd_missing) -> tuple[list[dict], dict[str, str]]` returns `(rows, jira_hosts)`.
+  - Each row is a dict with keys: `session_id, cwd, repo, worktree, display_dir, branch, branches, jira_key, jira_keys, topic, title, title_suspect, first_ts, last_ts, prompt_count, is_stub, first_prompt, recent_prompts, search_text, older_copies, warnings, resume_cmd`.
+  - `older_copies` is a list of dicts `{session_id, last_ts, prompt_count}`.
+  - Rows are sorted by `last_ts` descending.
 
-- [ ] **Step 1: Napsat failing testy**
+- [ ] **Step 1: Write failing tests**
 
 `tests/test_sessions_rows.py`:
 
@@ -909,11 +909,11 @@ class BuildRowsTest(unittest.TestCase):
 
     def test_title_with_foreign_key_is_suspect(self):
         s = self.session(1, [custom_title("PROJ-494 Route partner traffic", sid(1)),
-                             user("začni na https://acme.atlassian.net/browse/PROJ-563", ts="2026-01-01T00:00:00Z", uuid="u1", cwd=SHOP)])
+                             user("start on https://acme.atlassian.net/browse/PROJ-563", ts="2026-01-01T00:00:00Z", uuid="u1", cwd=SHOP)])
         r = self.rows([s])[0][sid(1)]
         self.assertTrue(r["title_suspect"])
         self.assertEqual(r["jira_key"], "PROJ-563")
-        self.assertEqual(r["topic"], "začni na https://acme.atlassian.net/browse/PROJ-563")
+        self.assertEqual(r["topic"], "start on https://acme.atlassian.net/browse/PROJ-563")
 
     def test_same_title_different_keys_in_same_project_is_suspect(self):
         a = self.session(1, [custom_title("country variables refactoring", sid(1)),
@@ -935,19 +935,19 @@ class BuildRowsTest(unittest.TestCase):
         by_id = self.rows([a, b, c])[0]
         self.assertFalse(by_id[sid(1)]["title_suspect"])
         self.assertFalse(by_id[sid(2)]["title_suspect"])
-        self.assertTrue(by_id[sid(3)]["title_suspect"])  # (a): klíč z titulku není v jeho větvích
+        self.assertTrue(by_id[sid(3)]["title_suspect"])  # (a): the key from the title is not in its branches
 
     def test_topic_fallbacks(self):
         url_title = self.session(1, [custom_title("https://acme.atlassian.net/browse/PROJ-369 Remove legacy column", sid(1)),
                                      user("x https://acme.atlassian.net/browse/PROJ-369", ts="2026-01-01T00:00:00Z", uuid="u1", cwd=SHOP)])
-        no_title = self.session(2, [user("Koukám na\n\ntento účet", ts="2026-01-01T00:00:00Z", uuid="u2", cwd=SHOP)])
-        only_last = self.session(3, [last_prompt("poslední věc", sid(3))])
+        no_title = self.session(2, [user("Looking at\n\nthis account", ts="2026-01-01T00:00:00Z", uuid="u2", cwd=SHOP)])
+        only_last = self.session(3, [last_prompt("last thing", sid(3))])
         nothing = self.session(4, [custom_title("PROJ-1", sid(4))])
         by_id = self.rows([url_title, no_title, only_last, nothing])[0]
         self.assertEqual(by_id[sid(1)]["topic"], "Remove legacy column")
-        self.assertEqual(by_id[sid(2)]["topic"], "Koukám na tento účet")
-        self.assertEqual(by_id[sid(3)]["topic"], "poslední věc")
-        self.assertEqual(by_id[sid(4)]["topic"], "(bez popisu)")
+        self.assertEqual(by_id[sid(2)]["topic"], "Looking at this account")
+        self.assertEqual(by_id[sid(3)]["topic"], "last thing")
+        self.assertEqual(by_id[sid(4)]["topic"], "(no description)")
         self.assertTrue(by_id[sid(3)]["is_stub"])
         self.assertIsNone(by_id[sid(3)]["resume_cmd"])
 
@@ -959,32 +959,32 @@ class BuildRowsTest(unittest.TestCase):
     def test_cwd_missing_real_check(self):
         with tempfile.TemporaryDirectory() as d:
             self.assertFalse(sessions.cwd_missing(d))
-            self.assertTrue(sessions.cwd_missing(d + "/neexistuje"))
+            self.assertTrue(sessions.cwd_missing(d + "/does-not-exist"))
 
 
 if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Spustit testy, musí selhat**
+- [ ] **Step 2: Run the tests, they must fail**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
 Expected: ERROR `AttributeError: module 'sessions' has no attribute 'build_rows'`
 
-- [ ] **Step 3: Implementovat**
+- [ ] **Step 3: Implement**
 
-Pod konstanty v `sessions.py` přidat:
+Add below the constants in `sessions.py`:
 
 ```python
 SEARCH_LIMIT = 60_000
 TITLE_PREFIX_RE = re.compile(r"^\s*(?:https?://\S+\s*)?(?:[A-Z][A-Z0-9]{1,9}[- ]\d+\b[\s:–—-]*)?")
 ```
 
-Na konec `sessions.py` přidat:
+Add at the end of `sessions.py`:
 
 ```python
 def cwd_missing(cwd: str) -> bool:
-    """True jen když adresář prokazatelně neexistuje; jiné chyby (např. TCC) = nevíme → False."""
+    """True only when the directory provably does not exist; other errors (e.g. TCC) = unknown → False."""
     try:
         os.stat(cwd)
     except FileNotFoundError:
@@ -1018,7 +1018,7 @@ def topic_for(s: Session, suspect: bool) -> str:
         return one_line(s.prompts[0], 140)
     if s.last_prompt:
         return one_line(clean_prompt(s.last_prompt), 140)
-    return "(bez popisu)"
+    return "(no description)"
 
 
 def _search_text(s: Session) -> str:
@@ -1086,12 +1086,12 @@ def build_rows(sessions: list[Session], dev_root: Path = DEV_ROOT, is_missing=cw
     return rows, hosts
 ```
 
-- [ ] **Step 4: Spustit testy, musí projít**
+- [ ] **Step 4: Run the tests, they must pass**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
-Expected: všechny testy OK.
+Expected: all tests OK.
 
-- [ ] **Step 5: Kontrola na reálných datech**
+- [ ] **Step 5: Check on real data**
 
 Run:
 ```bash
@@ -1104,9 +1104,9 @@ for r in rows[:15]:
 "
 ```
 Expected:
-- `hosts` obsahuje `PROJ` → `acme.atlassian.net` a `SD` → `example.atlassian.net`.
-- `cd6e5aad` má v `older_copies` `b0372375`.
-- Sessions shop_2 s titulkem „country variables refactoring“ mají `suspect`.
+- `hosts` contains `PROJ` → `acme.atlassian.net` and `SD` → `example.atlassian.net`.
+- `cd6e5aad` has `b0372375` in `older_copies`.
+- The shop_2 sessions with the title "country variables refactoring" are `suspect`.
 
 - [ ] **Step 6: Commit**
 
@@ -1119,7 +1119,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 4: `live.py`: běžící instance
+### Task 4: `live.py`: running instances
 
 **Files:**
 - Create: `tests/test_live.py`
@@ -1130,9 +1130,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Produces:
   - `parse_ps_output(out: str) -> dict[int, str]`
   - `ps_lstart(pids: list[int]) -> dict[int, str]`
-  - `get_live(claude_dir: Path, ps=ps_lstart) -> dict[str, dict]` vrací `sessionId → {"status": str, "pid": int, "name": str | None, "updated_at": int | None}`.
+  - `get_live(claude_dir: Path, ps=ps_lstart) -> dict[str, dict]` returns `sessionId → {"status": str, "pid": int, "name": str | None, "updated_at": int | None}`.
 
-- [ ] **Step 1: Napsat failing testy**
+- [ ] **Step 1: Write failing tests**
 
 `tests/test_live.py`:
 
@@ -1199,17 +1199,17 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Spustit testy, musí selhat**
+- [ ] **Step 2: Run the tests, they must fail**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
 Expected: ERROR `ModuleNotFoundError: No module named 'live'`
 
-- [ ] **Step 3: Implementovat**
+- [ ] **Step 3: Implement**
 
 `live.py`:
 
 ```python
-"""Detekce běžících Claude Code instancí z ~/.claude/sessions/<pid>.json."""
+"""Detection of running Claude Code instances from ~/.claude/sessions/<pid>.json."""
 from __future__ import annotations
 
 import json
@@ -1232,7 +1232,7 @@ def parse_ps_output(out: str) -> dict[int, str]:
 
 
 def ps_lstart(pids: list[int]) -> dict[int, str]:
-    """Start procesů ve stejném formátu jako `procStart` v pid souborech (C locale, UTC)."""
+    """Start times of processes in the same format as `procStart` in the pid files (C locale, UTC)."""
     if not pids:
         return {}
     env = dict(os.environ, LC_ALL="C", TZ="UTC")
@@ -1243,7 +1243,7 @@ def ps_lstart(pids: list[int]) -> dict[int, str]:
         )
     except (OSError, subprocess.SubprocessError):
         return {}
-    # ps vrací kód 1, když některý pid neexistuje; výstup pro živé pid je i tak platný.
+    # ps returns exit code 1 when some pid does not exist; the output for live pids is valid anyway.
     return parse_ps_output(completed.stdout)
 
 
@@ -1272,15 +1272,15 @@ def get_live(claude_dir: Path, ps=ps_lstart) -> dict[str, dict]:
     return result
 ```
 
-- [ ] **Step 4: Spustit testy, musí projít**
+- [ ] **Step 4: Run the tests, they must pass**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
-Expected: všechny testy OK.
+Expected: all tests OK.
 
-- [ ] **Step 5: Kontrola na reálných datech**
+- [ ] **Step 5: Check on real data**
 
 Run: `python3 -c "import live, pathlib, json; print(json.dumps(live.get_live(pathlib.Path.home()/'.claude'), indent=1))"`
-Expected: záznamy pro běžící sessions, včetně aktuální session `3955ef16-…` se stavem `busy`.
+Expected: records for running sessions, including the current session `3955ef16-…` with status `busy`.
 
 - [ ] **Step 6: Commit**
 
@@ -1293,7 +1293,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 5: `notes.py`: stavy a poznámky
+### Task 5: `notes.py`: statuses and notes
 
 **Files:**
 - Create: `tests/test_notes.py`
@@ -1304,11 +1304,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `VALID_STATUSES = ("active", "waiting", "done", "archived")`
   - `MAX_NOTE = 500`
   - `class NotesError(ValueError)`
-  - `class NotesStore(path: Path)` s metodami:
+  - `class NotesStore(path: Path)` with methods:
     - `.all() -> dict[str, dict]`
-    - `.update(session_id: str, *, status=<nezadáno>, note=<nezadáno>) -> dict`. Vrací `{"status": str | None, "note": str, "updated_at": str}`. `status=None` stav smaže.
+    - `.update(session_id: str, *, status=<not given>, note=<not given>) -> dict`. Returns `{"status": str | None, "note": str, "updated_at": str}`. `status=None` clears the status.
 
-- [ ] **Step 1: Napsat failing testy**
+- [ ] **Step 1: Write failing tests**
 
 `tests/test_notes.py`:
 
@@ -1334,21 +1334,21 @@ class NotesStoreTest(unittest.TestCase):
         self.assertEqual(self.store.all(), {})
 
     def test_update_persists(self):
-        entry = self.store.update("s1", status="waiting", note="čeká na CR")
+        entry = self.store.update("s1", status="waiting", note="waiting for CR")
         self.assertEqual(entry["status"], "waiting")
-        self.assertEqual(entry["note"], "čeká na CR")
+        self.assertEqual(entry["note"], "waiting for CR")
         self.assertTrue(entry["updated_at"].endswith("Z"))
         reloaded = notes.NotesStore(self.path).all()
-        self.assertEqual(reloaded["s1"]["note"], "čeká na CR")
+        self.assertEqual(reloaded["s1"]["note"], "waiting for CR")
         raw = json.loads(self.path.read_text(encoding="utf-8"))
         self.assertEqual(raw["version"], 1)
 
     def test_partial_update_keeps_other_field(self):
         self.store.update("s1", status="active")
-        self.store.update("s1", note="poznámka")
+        self.store.update("s1", note="note")
         self.assertEqual(self.store.all()["s1"]["status"], "active")
         self.store.update("s1", status="done")
-        self.assertEqual(self.store.all()["s1"]["note"], "poznámka")
+        self.assertEqual(self.store.all()["s1"]["note"], "note")
 
     def test_validation(self):
         with self.assertRaises(notes.NotesError):
@@ -1385,17 +1385,17 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Spustit testy, musí selhat**
+- [ ] **Step 2: Run the tests, they must fail**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
 Expected: ERROR `ModuleNotFoundError: No module named 'notes'`
 
-- [ ] **Step 3: Implementovat**
+- [ ] **Step 3: Implement**
 
 `notes.py`:
 
 ```python
-"""Uživatelské stavy a poznámky k sessions; JSON soubor s atomickým zápisem."""
+"""User statuses and notes for sessions; a JSON file with atomic writes."""
 from __future__ import annotations
 
 import contextlib
@@ -1431,9 +1431,9 @@ class NotesStore:
 
     def update(self, session_id: str, *, status=_UNSET, note=_UNSET) -> dict:
         if status is not _UNSET and status is not None and status not in VALID_STATUSES:
-            raise NotesError(f"neplatný stav: {status!r}")
+            raise NotesError(f"invalid status: {status!r}")
         if note is not _UNSET and not isinstance(note, str):
-            raise NotesError("poznámka musí být text")
+            raise NotesError("note must be a string")
         with self._lock:
             data = self._read()
             entry = dict(data.get(session_id) or {})
@@ -1479,10 +1479,10 @@ class NotesStore:
             raise
 ```
 
-- [ ] **Step 4: Spustit testy, musí projít**
+- [ ] **Step 4: Run the tests, they must pass**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
-Expected: všechny testy OK.
+Expected: all tests OK.
 
 - [ ] **Step 5: Commit**
 
@@ -1495,7 +1495,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 6: `iterm.py`: otevření resume v iTerm2
+### Task 6: `iterm.py`: opening resume in iTerm2
 
 **Files:**
 - Create: `tests/test_iterm.py`
@@ -1507,7 +1507,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `build_argv(cmd: str) -> list[str]`
   - `open_in_iterm(cmd: str, runner=subprocess.run) -> tuple[bool, str | None]`
 
-- [ ] **Step 1: Napsat failing testy**
+- [ ] **Step 1: Write failing tests**
 
 `tests/test_iterm.py`:
 
@@ -1563,17 +1563,17 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Spustit testy, musí selhat**
+- [ ] **Step 2: Run the tests, they must fail**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
 Expected: ERROR `ModuleNotFoundError: No module named 'iterm'`
 
-- [ ] **Step 3: Implementovat**
+- [ ] **Step 3: Implement**
 
 `iterm.py`:
 
 ```python
-"""Otevření příkazu v novém iTerm2 tabu přes osascript (příkaz jde jako argv, nikdy do zdrojáku skriptu)."""
+"""Opens a command in a new iTerm2 tab via osascript (the command goes in as argv, never into the script source)."""
 from __future__ import annotations
 
 import subprocess
@@ -1600,22 +1600,22 @@ def open_in_iterm(cmd: str, runner=subprocess.run) -> tuple[bool, str | None]:
     try:
         completed = runner(build_argv(cmd), capture_output=True, text=True, timeout=10)
     except subprocess.TimeoutExpired:
-        return False, "iTerm2 neodpověděl do 10 s."
+        return False, "iTerm2 did not respond within 10 s."
     except OSError as e:
-        return False, f"osascript nelze spustit: {e}"
+        return False, f"Cannot run osascript: {e}"
     if completed.returncode != 0:
         err = (completed.stderr or "").strip()
         if "-1743" in err:
-            return False, ("macOS nepovolil ovládání iTerm2. Povol ho v Nastavení systému → "
-                           "Soukromí a zabezpečení → Automatizace, nebo příkaz zkopíruj.")
-        return False, err or f"osascript skončil s kódem {completed.returncode}"
+            return False, ("macOS did not allow controlling iTerm2. Allow it in System Settings → "
+                           "Privacy & Security → Automation, or copy the command instead.")
+        return False, err or f"osascript exited with code {completed.returncode}"
     return True, None
 ```
 
-- [ ] **Step 4: Spustit testy, musí projít**
+- [ ] **Step 4: Run the tests, they must pass**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
-Expected: všechny testy OK.
+Expected: all tests OK.
 
 - [ ] **Step 5: Commit**
 
@@ -1628,7 +1628,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 7: `server.py`: HTTP API, bezpečnost, spouštění
+### Task 7: `server.py`: HTTP API, security, startup
 
 **Files:**
 - Create: `tests/test_server.py`
@@ -1642,15 +1642,15 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `iterm.open_in_iterm`,
   - `tests.helpers`.
 - Produces:
-  - `App(claude_dir, data_dir, *, static_dir, opener, live_fn, dev_root, is_missing)` s `.snapshot() -> dict`, `.find_row(id) -> dict | None`, `.save_note(id, fields) -> dict`, `.open_session(row) -> tuple[int, dict]` a `.port`.
+  - `App(claude_dir, data_dir, *, static_dir, opener, live_fn, dev_root, is_missing)` with `.snapshot() -> dict`, `.find_row(id) -> dict | None`, `.save_note(id, fields) -> dict`, `.open_session(row) -> tuple[int, dict]` and `.port`.
   - `DashboardServer((host, port), app)`.
   - `main(argv=None) -> int`.
   - HTTP:
     - `GET /`, `/index.html`, `/app.js`, `/filter.js`, `/api/health`, `/api/sessions`,
-    - `POST /api/notes/<id>` s tělem `{status?, note?}`,
+    - `POST /api/notes/<id>` with body `{status?, note?}`,
     - `POST /api/open/<id>`.
 
-- [ ] **Step 1: Napsat failing testy**
+- [ ] **Step 1: Write failing tests**
 
 `tests/test_server.py`:
 
@@ -1745,10 +1745,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(status, 403)
 
     def test_notes_roundtrip(self):
-        status, body = self.request("POST", f"/api/notes/{sid(1)}", {"status": "waiting", "note": "čeká na CR"})
+        status, body = self.request("POST", f"/api/notes/{sid(1)}", {"status": "waiting", "note": "waiting for CR"})
         self.assertEqual(status, 200)
         self.assertEqual(body["note"]["status"], "waiting")
-        self.assertEqual(self.rows()[sid(1)]["note"]["note"], "čeká na CR")
+        self.assertEqual(self.rows()[sid(1)]["note"]["note"], "waiting for CR")
 
     def test_notes_invalid_status(self):
         self.assertEqual(self.request("POST", f"/api/notes/{sid(1)}", {"status": "bogus"})[0], 400)
@@ -1782,44 +1782,44 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.opened, [f"cd {CWD} && claude --resume {sid(1)}"])
 
     def test_open_failure(self):
-        self.open_result = (False, "iTerm2 neběží")
-        self.assertEqual(self.request("POST", f"/api/open/{sid(1)}", {}), (502, {"ok": False, "error": "iTerm2 neběží"}))
+        self.open_result = (False, "iTerm2 is not running")
+        self.assertEqual(self.request("POST", f"/api/open/{sid(1)}", {}), (502, {"ok": False, "error": "iTerm2 is not running"}))
 
     def test_open_refuses_missing_cwd(self):
         self.missing = True
         status, body = self.request("POST", f"/api/open/{sid(1)}", {})
         self.assertEqual(status, 409)
-        self.assertIn("neexistuje", body["error"])
+        self.assertIn("no longer exists", body["error"])
         self.assertEqual(self.opened, [])
 
     def test_note_inherited_from_older_copy(self):
         self.fake.write_session(CWD, sid(2), [
             user("Analyzuj https://acme.atlassian.net/browse/PROJ-563", ts="2026-10-01T10:00:00Z", uuid="u1", cwd=CWD),
         ])
-        self.app.notes.update(sid(2), status="waiting", note="z kopie")
+        self.app.notes.update(sid(2), status="waiting", note="from copy")
         rows = self.rows()
         self.assertEqual(list(rows), [sid(1)])
-        self.assertEqual(rows[sid(1)]["note"]["note"], "z kopie")
-        status, body = self.request("POST", f"/api/notes/{sid(1)}", {"note": "nová"})
+        self.assertEqual(rows[sid(1)]["note"]["note"], "from copy")
+        status, body = self.request("POST", f"/api/notes/{sid(1)}", {"note": "new"})
         self.assertEqual(status, 200)
-        self.assertEqual(body["note"], {"status": "waiting", "note": "nová", "updated_at": body["note"]["updated_at"]})
+        self.assertEqual(body["note"], {"status": "waiting", "note": "new", "updated_at": body["note"]["updated_at"]})
 
 
 if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Spustit testy, musí selhat**
+- [ ] **Step 2: Run the tests, they must fail**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
 Expected: ERROR `ModuleNotFoundError: No module named 'server'`
 
-- [ ] **Step 3: Implementovat**
+- [ ] **Step 3: Implement**
 
 `server.py`:
 
 ```python
-"""Claude Sessions Dashboard: lokální HTTP server (poslouchá jen na 127.0.0.1)."""
+"""Claude Sessions Dashboard: local HTTP server (listens on 127.0.0.1 only)."""
 from __future__ import annotations
 
 import argparse
@@ -1900,9 +1900,9 @@ class App:
 
     def open_session(self, row: dict) -> tuple[int, dict]:
         if not row.get("resume_cmd"):
-            return 409, {"ok": False, "error": "Session nemá známý adresář."}
+            return 409, {"ok": False, "error": "Session has no known directory."}
         if "cwd-missing" in row.get("warnings", []):
-            return 409, {"ok": False, "error": f"Adresář {row['cwd']} už neexistuje."}
+            return 409, {"ok": False, "error": f"Directory {row['cwd']} no longer exists."}
         ok, error = self.opener(row["resume_cmd"])
         return (200, {"ok": True}) if ok else (502, {"ok": False, "error": error})
 
@@ -1915,7 +1915,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.server.app
 
     def log_request(self, code="-", size="-"):
-        # Polling každých 10 s by zaplavil log; logujeme jen chyby.
+        # Polling every 10 s would flood the log; we log only errors.
         try:
             if int(code) < 400:
                 return
@@ -1948,7 +1948,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "forbidden origin"}, 403)
         ctype = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
         if ctype != "application/json":
-            return self._json({"error": "Content-Type musí být application/json"}, 403)
+            return self._json({"error": "Content-Type must be application/json"}, 403)
         match = POST_PATH_RE.fullmatch(self.path)
         if not match or not SESSION_ID_RE.match(match.group(2)):
             return self._json({"error": "not found"}, 404)
@@ -1958,7 +1958,7 @@ class Handler(BaseHTTPRequestHandler):
         action, session_id = match.groups()
         row = self.app.find_row(session_id)
         if row is None:
-            return self._json({"error": "neznámá session"}, 404)
+            return self._json({"error": "unknown session"}, 404)
         if action == "notes":
             fields = {k: body[k] for k in ("status", "note") if k in body}
             try:
@@ -1975,20 +1975,20 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             length = -1
         if length < 0:
-            self._json({"error": "neplatná Content-Length"}, 400)
+            self._json({"error": "invalid Content-Length"}, 400)
             return None
         if length > MAX_BODY:
-            self.rfile.read(min(length, 1 << 20))  # dočíst, jinak může klient místo odpovědi dostat RST
-            self._json({"error": "tělo požadavku je příliš velké"}, 413)
+            self.rfile.read(min(length, 1 << 20))  # drain the body, otherwise the client may get an RST instead of a response
+            self._json({"error": "request body too large"}, 413)
             return None
         raw = self.rfile.read(length) if length else b"{}"
         try:
             body = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
-            self._json({"error": "nevalidní JSON"}, 400)
+            self._json({"error": "invalid JSON"}, 400)
             return None
         if not isinstance(body, dict):
-            self._json({"error": "tělo musí být JSON objekt"}, 400)
+            self._json({"error": "body must be a JSON object"}, 400)
             return None
         return body
 
@@ -2032,7 +2032,7 @@ def main(argv=None) -> int:
     try:
         httpd = DashboardServer(("127.0.0.1", args.port), app)
     except OSError as e:
-        print(f"Nelze otevřít port {args.port}: {e}", file=sys.stderr, flush=True)
+        print(f"Cannot open port {args.port}: {e}", file=sys.stderr, flush=True)
         return 1
     threading.Thread(target=app.cache.load, name="warmup", daemon=True).start()
     print(f"Claude Sessions Dashboard: http://127.0.0.1:{app.port}/", flush=True)
@@ -2049,14 +2049,14 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Spustit testy, musí projít**
+- [ ] **Step 4: Run the tests, they must pass**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
-Expected: všechny testy OK.
+Expected: all tests OK.
 
-- [ ] **Step 5: Kontrola proti reálným datům na vývojovém portu**
+- [ ] **Step 5: Check against real data on the development port**
 
-Run (server běží na pozadí, data do temp adresáře, aby se nezakládal skutečný `notes.json`):
+Run (server runs in the background, data goes to a temp directory so the real `notes.json` is not created):
 ```bash
 python3 server.py --port 7334 --data-dir "$TMPDIR/cd-dev" & SRV=$!; sleep 3
 curl -s http://127.0.0.1:7334/api/health
@@ -2064,7 +2064,7 @@ curl -s http://127.0.0.1:7334/api/sessions | python3 -c "import json,sys; d=json
 curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: evil.example:7334' http://127.0.0.1:7334/api/sessions
 kill $SRV
 ```
-Expected: `{"ok": true}`, desítky řádků s několika `live`, a `403` pro cizí Host.
+Expected: `{"ok": true}`, dozens of rows with several `live`, and `403` for a foreign Host.
 
 - [ ] **Step 6: Commit**
 
@@ -2087,17 +2087,17 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Create: `static/app.js`
 
 **Interfaces:**
-- Consumes: `GET /api/sessions` (tvar řádku z Task 3, plus `live` a `note` z Task 7), `POST /api/notes/<id>`, `POST /api/open/<id>`.
+- Consumes: `GET /api/sessions` (row shape from Task 3, plus `live` and `note` from Task 7), `POST /api/notes/<id>`, `POST /api/open/<id>`.
 - Produces:
-  - `window.DashFilter` / `module.exports` s funkcemi:
+  - `window.DashFilter` / `module.exports` with the functions:
     - `matches(row, prefs) -> bool`,
-    - `groupRows(rows, mode) -> [{key, label, rows}]`, kde `mode` ∈ `"dir" | "issue" | "none"`,
+    - `groupRows(rows, mode) -> [{key, label, rows}]`, where `mode` ∈ `"dir" | "issue" | "none"`,
     - `relTime(ts, now?) -> string`,
     - `dirCounts(rows) -> [{dir, count}]`,
     - `NO_ISSUE`.
   - `prefs` = `{q, dirs: string[], hide: string[], runningOnly, showStubs, group}`.
 
-- [ ] **Step 1: Napsat failing JS testy a statický test**
+- [ ] **Step 1: Write failing JS tests and a static test**
 
 `tests/js/test_filter.js`:
 
@@ -2135,11 +2135,11 @@ const tests = {
     assert.strictEqual(F.matches(row({ is_stub: true }), prefs({ showStubs: true })), true);
   },
   "search requires all terms, case insensitive, covers prompts, note, cwd"() {
-    const r = row({ topic: "Contoso GA", search_text: "pusť testy", note: { status: "", note: "Čeká na JH" } });
-    assert.strictEqual(F.matches(r, prefs({ q: "contoso TESTY" })), true);
-    assert.strictEqual(F.matches(r, prefs({ q: "čeká" })), true);
+    const r = row({ topic: "Contoso GA", search_text: "run the tests", note: { status: "", note: "Waiting for JH" } });
+    assert.strictEqual(F.matches(r, prefs({ q: "contoso TESTS" })), true);
+    assert.strictEqual(F.matches(r, prefs({ q: "waiting" })), true);
     assert.strictEqual(F.matches(r, prefs({ q: "shop" })), true);
-    assert.strictEqual(F.matches(r, prefs({ q: "contoso nic" })), false);
+    assert.strictEqual(F.matches(r, prefs({ q: "contoso nothing" })), false);
   },
   "dir filter and running-only apply even when searching"() {
     const r = row({ jira_keys: ["PROJ-1"] });
@@ -2175,11 +2175,11 @@ const tests = {
   },
   "relTime"() {
     const now = Date.parse("2026-10-07T12:00:00Z");
-    assert.strictEqual(F.relTime("2026-10-07T11:59:30Z", now), "právě teď");
-    assert.strictEqual(F.relTime("2026-10-07T11:55:00Z", now), "před 5 min");
-    assert.strictEqual(F.relTime("2026-10-07T09:00:00Z", now), "před 3 h");
-    assert.strictEqual(F.relTime("2026-10-06T10:00:00Z", now), "včera");
-    assert.strictEqual(F.relTime("2026-10-02T12:00:00Z", now), "před 5 dny");
+    assert.strictEqual(F.relTime("2026-10-07T11:59:30Z", now), "just now");
+    assert.strictEqual(F.relTime("2026-10-07T11:55:00Z", now), "5 min ago");
+    assert.strictEqual(F.relTime("2026-10-07T09:00:00Z", now), "3 h ago");
+    assert.strictEqual(F.relTime("2026-10-06T10:00:00Z", now), "yesterday");
+    assert.strictEqual(F.relTime("2026-10-02T12:00:00Z", now), "5 days ago");
     assert.strictEqual(F.relTime(null, now), "");
     assert.strictEqual(F.relTime("nonsense", now), "");
   },
@@ -2230,12 +2230,12 @@ class StaticFilesTest(unittest.TestCase):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
         self.assertLess(html.index('src="/filter.js"'), html.index('src="/app.js"'))
         self.assertIn("<title>Claude Sessions</title>", html)
-        self.assertNotRegex(html, r'(src|href)\s*=\s*["\']?(https?:)?//')  # žádné externí skripty/styly/CDN
+        self.assertNotRegex(html, r'(src|href)\s*=\s*["\']?(https?:)?//')  # no external scripts/styles/CDN
 
     def test_filter_js_under_node(self):
         node = shutil.which("node")
         if not node:
-            self.skipTest("node není na PATH")
+            self.skipTest("node is not on PATH")
         result = subprocess.run([node, str(ROOT / "tests" / "js" / "test_filter.js")], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -2244,22 +2244,22 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Spustit testy, musí selhat**
+- [ ] **Step 2: Run the tests, they must fail**
 
 Run: `node tests/js/test_filter.js; python3 -m unittest tests.test_static -v`
-Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python test selže na chybějících souborech (`FileNotFoundError`).
+Expected: Node fails with `Cannot find module '../../static/filter.js'`, the Python test fails on the missing files (`FileNotFoundError`).
 
-- [ ] **Step 3: Implementovat `static/filter.js`**
+- [ ] **Step 3: Implement `static/filter.js`**
 
 ```js
-/* Čisté funkce dashboardu – sdílené prohlížečem (window.DashFilter) a Node testy (module.exports). */
+/* Pure dashboard functions – shared by the browser (window.DashFilter) and the Node tests (module.exports). */
 (function (root, factory) {
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.DashFilter = api;
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  const NO_ISSUE = "bez issue";
+  const NO_ISSUE = "no issue";
 
   function haystack(r) {
     return [
@@ -2273,7 +2273,7 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
     if (f.dirs && f.dirs.length && !f.dirs.includes(r.display_dir)) return false;
     const terms = (f.q || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
     if (terms.length) {
-      // Hledání záměrně ignoruje skrývání podle stavu a stubů: „563“ musí najít i hotovou session.
+      // Search deliberately ignores status and stub hiding: "563" must find even a done session.
       const hay = haystack(r);
       return terms.every((t) => hay.includes(t));
     }
@@ -2305,12 +2305,12 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
     const t = Date.parse(ts);
     if (Number.isNaN(t)) return "";
     const s = Math.max(0, ((now === undefined ? Date.now() : now) - t) / 1000);
-    if (s < 60) return "právě teď";
-    if (s < 3600) return `před ${Math.floor(s / 60)} min`;
-    if (s < 86400) return `před ${Math.floor(s / 3600)} h`;
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
     const d = Math.floor(s / 86400);
-    if (d === 1) return "včera";
-    if (d < 30) return `před ${d} dny`;
+    if (d === 1) return "yesterday";
+    if (d < 30) return `${d} days ago`;
     return new Date(t).toLocaleDateString("cs-CZ");
   }
 
@@ -2327,7 +2327,7 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
 });
 ```
 
-- [ ] **Step 4: Implementovat `static/index.html`**
+- [ ] **Step 4: Implement `static/index.html`**
 
 ```html
 <!doctype html>
@@ -2416,14 +2416,14 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
 <header>
   <div class="bar">
     <h1>Claude Sessions</h1>
-    <input id="q" type="search" placeholder="Hledat: PROJ-563, větev, adresář, text promptu, poznámka…  ( / )" autocomplete="off">
-    <label class="tog"><input id="running" type="checkbox"> jen běžící</label>
-    <label class="tog"><input id="stubs" type="checkbox"> zobrazit prázdné</label>
-    <label class="tog">seskupit
+    <input id="q" type="search" placeholder="Search: PROJ-563, branch, directory, prompt text, note…  ( / )" autocomplete="off">
+    <label class="tog"><input id="running" type="checkbox"> running only</label>
+    <label class="tog"><input id="stubs" type="checkbox"> show empty</label>
+    <label class="tog">group by
       <select id="group">
-        <option value="dir">podle adresáře</option>
-        <option value="issue">podle issue</option>
-        <option value="none">neseskupovat</option>
+        <option value="dir">directory</option>
+        <option value="issue">issue</option>
+        <option value="none">none</option>
       </select>
     </label>
     <span id="count"></span>
@@ -2432,7 +2432,7 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
   <div class="chips" id="statuses"></div>
 </header>
 <div id="banner" hidden></div>
-<main id="list"><p class="empty">Načítám…</p></main>
+<main id="list"><p class="empty">Loading…</p></main>
 <div id="toasts"></div>
 <script src="/filter.js"></script>
 <script src="/app.js"></script>
@@ -2440,19 +2440,19 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
 </html>
 ```
 
-- [ ] **Step 5: Implementovat `static/app.js`**
+- [ ] **Step 5: Implement `static/app.js`**
 
 ```js
-/* Claude Sessions Dashboard – vykreslení a akce. Pouze DOM API (žádné innerHTML): text z transcriptů je nedůvěryhodný. */
+/* Claude Sessions Dashboard – rendering and actions. DOM API only (no innerHTML): text from transcripts is untrusted. */
 (function () {
   "use strict";
   const F = window.DashFilter;
-  const STATUSES = [["", "bez stavu"], ["active", "aktivní"], ["waiting", "čeká"], ["done", "hotovo"], ["archived", "archiv"]];
+  const STATUSES = [["", "no status"], ["active", "active"], ["waiting", "waiting"], ["done", "done"], ["archived", "archived"]];
   const WARN_LABELS = {
-    "cwd-missing": "adresář už neexistuje",
-    "cwd-mismatch": "cwd neodpovídá složce projektu",
-    "no-cwd": "neznámý adresář",
-    unreadable: "soubor nelze přečíst",
+    "cwd-missing": "directory no longer exists",
+    "cwd-mismatch": "cwd does not match the project folder",
+    "no-cwd": "unknown directory",
+    unreadable: "file cannot be read",
   };
   const PREFS_KEY = "claude-dashboard:prefs:v1";
   const REFRESH_MS = 10000;
@@ -2493,7 +2493,7 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
   }
 
   function savePrefs() {
-    try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) { /* privátní okno apod. */ }
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) { /* private window etc. */ }
   }
 
   function toggle(list, value) {
@@ -2503,8 +2503,8 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
 
   function plural(n) {
     if (n === 1) return "prompt";
-    if (n >= 2 && n <= 4) return "prompty";
-    return "promptů";
+    // English has only singular and plural.
+    return "prompts";
   }
 
   function trunc(text, n) {
@@ -2512,7 +2512,7 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
   }
 
   function fmt(ts) {
-    return ts ? new Date(ts).toLocaleString("cs-CZ") : "—";
+    return ts ? new Date(ts).toLocaleString("en-GB") : "—";
   }
 
   function toast(message, isError) {
@@ -2528,7 +2528,7 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
       if (!res.ok) return { ok: false, error: json.error || `HTTP ${res.status}` };
       return json;
     } catch (e) {
-      return { ok: false, error: "Server neodpovídá." };
+      return { ok: false, error: "Server is not responding." };
     }
   }
 
@@ -2542,27 +2542,27 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
       document.execCommand("copy");
       ta.remove();
     }
-    toast(`Zkopírováno: ${text}`);
+    toast(`Copied: ${text}`);
   }
 
   async function openSession(r) {
-    if (r.live && !confirm(`Session právě běží (${r.live.status}, pid ${r.live.pid}).\nOpravdu otevřít druhou instanci?`)) return;
+    if (r.live && !confirm(`This session is running right now (${r.live.status}, pid ${r.live.pid}).\nOpen a second instance anyway?`)) return;
     const res = await post(`/api/open/${encodeURIComponent(r.session_id)}`, {});
-    if (res.ok) toast("Otevřeno v iTerm2.");
-    else toast(`Nepodařilo se otevřít: ${res.error}`, true);
+    if (res.ok) toast("Opened in iTerm2.");
+    else toast(`Could not open: ${res.error}`, true);
   }
 
   async function saveNote(r, fields) {
     const res = await post(`/api/notes/${encodeURIComponent(r.session_id)}`, fields);
     if (!res.ok) {
-      toast(`Uložení selhalo: ${res.error}`, true);
+      toast(`Save failed: ${res.error}`, true);
       return;
     }
     const saved = res.note && (res.note.status || res.note.note) ? res.note : null;
-    // Během psaní mohl proběhnout refresh a nahradit data.rows novými objekty → aktualizuj i aktuální řádek podle id.
+    // A refresh may have run while typing and replaced data.rows with new objects → also update the current row by id.
     const current = data.rows.find((x) => x.session_id === r.session_id);
     for (const target of current && current !== r ? [r, current] : [r]) target.note = saved;
-    toast("Uloženo.");
+    toast("Saved.");
     render();
   }
 
@@ -2579,7 +2579,7 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
   function renderActions(r) {
     const status = (r.note && r.note.status) || "";
     const noteValue = (r.note && r.note.note) || "";
-    const select = el("select", { title: "Můj stav" },
+    const select = el("select", { title: "My status" },
       STATUSES.map(([value, label]) => {
         const option = el("option", { value }, label);
         option.selected = value === status;
@@ -2589,7 +2589,7 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
       select.blur();
       saveNote(r, { status: select.value || null });
     });
-    const note = el("input", { class: "note", type: "text", placeholder: "poznámka…", maxlength: 500, value: noteValue });
+    const note = el("input", { class: "note", type: "text", placeholder: "note…", maxlength: 500, value: noteValue });
     note.addEventListener("keydown", (e) => {
       if (e.key === "Enter") note.blur();
       if (e.key === "Escape") { note.value = noteValue; note.blur(); }
@@ -2599,8 +2599,8 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
       if (value !== noteValue) saveNote(r, { note: value });
     });
     return el("div", { class: "actions" },
-      el("button", { type: "button", title: r.resume_cmd || "Neznámý adresář", disabled: !r.resume_cmd, onclick: () => copyText(r.resume_cmd) }, "⧉ Kopírovat"),
-      el("button", { type: "button", title: "Otevřít v novém iTerm2 tabu", disabled: !r.resume_cmd, onclick: () => openSession(r) }, "▶ Otevřít"),
+      el("button", { type: "button", title: r.resume_cmd || "Unknown directory", disabled: !r.resume_cmd, onclick: () => copyText(r.resume_cmd) }, "⧉ Copy"),
+      el("button", { type: "button", title: "Open in a new iTerm2 tab", disabled: !r.resume_cmd, onclick: () => openSession(r) }, "▶ Open"),
       select, note);
   }
 
@@ -2608,22 +2608,22 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
     const dt = (label) => el("dt", {}, label);
     const items = [
       dt("Session ID"), el("dd", {}, r.session_id),
-      dt("Adresář"), el("dd", {}, r.cwd || "—"),
+      dt("Directory"), el("dd", {}, r.cwd || "—"),
       dt("Resume"), el("dd", {}, r.resume_cmd || "—"),
-      dt("Větve"), el("dd", {}, r.branches.join(" → ") || "—"),
+      dt("Branches"), el("dd", {}, r.branches.join(" → ") || "—"),
       dt("Jira"), el("dd", {}, r.jira_keys.length ? r.jira_keys.map((k, i) => [i ? ", " : null, jiraLink(k)]) : "—"),
     ];
-    if (r.title) items.push(dt("Titulek"), el("dd", { class: r.title_suspect ? "suspect" : null }, r.title, r.title_suspect ? "  (možná zděděný)" : null));
-    items.push(dt("Začátek"), el("dd", {}, fmt(r.first_ts)), dt("Poslední aktivita"), el("dd", {}, fmt(r.last_ts)));
-    if (r.live) items.push(dt("Běží"), el("dd", {}, `${r.live.status}, pid ${r.live.pid}`));
-    if (r.warnings.length) items.push(dt("Varování"), el("dd", { class: "warn" }, warnText(r)));
+    if (r.title) items.push(dt("Title"), el("dd", { class: r.title_suspect ? "suspect" : null }, r.title, r.title_suspect ? "  (possibly inherited)" : null));
+    items.push(dt("Started"), el("dd", {}, fmt(r.first_ts)), dt("Last activity"), el("dd", {}, fmt(r.last_ts)));
+    if (r.live) items.push(dt("Running"), el("dd", {}, `${r.live.status}, pid ${r.live.pid}`));
+    if (r.warnings.length) items.push(dt("Warnings"), el("dd", { class: "warn" }, warnText(r)));
     if (r.older_copies.length) {
-      items.push(dt("Starší kopie"), el("dd", {}, r.older_copies.map((c) => `${c.session_id}  (${fmt(c.last_ts)}, ${c.prompt_count} ${plural(c.prompt_count)})`).join("\n")));
+      items.push(dt("Older copies"), el("dd", {}, r.older_copies.map((c) => `${c.session_id}  (${fmt(c.last_ts)}, ${c.prompt_count} ${plural(c.prompt_count)})`).join("\n")));
     }
     return el("div", { class: "details" },
       el("dl", {}, items),
-      r.first_prompt ? [el("h3", {}, "První prompt"), el("p", { class: "prompt" }, r.first_prompt)] : null,
-      r.recent_prompts.length ? [el("h3", {}, "Poslední prompty (nejnovější dole)"), el("ol", {}, r.recent_prompts.map((p) => el("li", {}, p)))] : null);
+      r.first_prompt ? [el("h3", {}, "First prompt"), el("p", { class: "prompt" }, r.first_prompt)] : null,
+      r.recent_prompts.length ? [el("h3", {}, "Recent prompts (newest last)"), el("ol", {}, r.recent_prompts.map((p) => el("li", {}, p)))] : null);
   }
 
   function renderRow(r) {
@@ -2638,7 +2638,7 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
       .filter(Boolean).join(" · ");
     const lastPrompts = r.recent_prompts.slice(-2).reverse().map((p) => `» ${trunc(p, 120)}`).join("    ");
     row.append(
-      el("div", { class: `dot ${r.live ? r.live.status : ""}`, title: r.live ? `běží (${r.live.status}), pid ${r.live.pid}` : "neběží" }),
+      el("div", { class: `dot ${r.live ? r.live.status : ""}`, title: r.live ? `running (${r.live.status}), pid ${r.live.pid}` : "not running" }),
       el("div", { class: "body" },
         el("div", { class: "main-line" }, r.jira_key ? jiraLink(r.jira_key, "key") : null, el("span", { class: "topic", title: r.topic }, r.topic)),
         el("div", { class: "sub" }, sub, r.warnings.length ? el("span", { class: "warn", title: warnText(r) }, "  ⚠ " + warnText(r)) : null),
@@ -2651,13 +2651,13 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
   }
 
   function renderChips() {
-    // replaceChildren nerozbaluje pole → vždy spread.
-    $("#dirs").replaceChildren(el("span", { class: "lbl" }, "adresáře:"),
+    // replaceChildren does not unpack arrays → always spread.
+    $("#dirs").replaceChildren(el("span", { class: "lbl" }, "directories:"),
       ...F.dirCounts(data.rows).map(({ dir, count }) => el("span", {
         class: prefs.dirs.includes(dir) ? "chip on" : "chip",
         onclick: () => { toggle(prefs.dirs, dir); savePrefs(); render(); },
       }, dir, " ", el("span", { class: "n" }, count))));
-    $("#statuses").replaceChildren(el("span", { class: "lbl" }, "zobrazit stavy:"),
+    $("#statuses").replaceChildren(el("span", { class: "lbl" }, "show statuses:"),
       ...STATUSES.map(([value, label]) => el("span", {
         class: prefs.hide.includes(value) ? "chip" : "chip on",
         onclick: () => { toggle(prefs.hide, value); savePrefs(); render(); },
@@ -2674,14 +2674,14 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
     pendingRender = false;
     renderChips();
     const visible = data.rows.filter((r) => F.matches(r, prefs));
-    $("#count").textContent = `zobrazeno ${visible.length} z ${data.rows.length}`;
+    $("#count").textContent = `showing ${visible.length} of ${data.rows.length}`;
     const out = [];
     for (const group of F.groupRows(visible, prefs.group)) {
       out.push(el("section", {},
         group.label ? el("h2", {}, group.label, " ", el("span", { class: "n" }, group.rows.length)) : null,
         group.rows.map(renderRow)));
     }
-    if (!visible.length) out.push(el("p", { class: "empty" }, loaded ? "Nic neodpovídá filtrům." : "Načítám…"));
+    if (!visible.length) out.push(el("p", { class: "empty" }, loaded ? "Nothing matches the filters." : "Loading…"));
     $("#list").replaceChildren(...out);
   }
 
@@ -2700,7 +2700,7 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
       render();
     } catch (e) {
       const banner = $("#banner");
-      banner.textContent = `Server neodpovídá (${e.message}). Zobrazuji poslední načtená data.`;
+      banner.textContent = `Server is not responding (${e.message}). Showing the last loaded data.`;
       banner.hidden = false;
     } finally {
       inFlight = false;
@@ -2734,12 +2734,12 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
 })();
 ```
 
-- [ ] **Step 6: Spustit testy, musí projít**
+- [ ] **Step 6: Run the tests, they must pass**
 
 Run: `node tests/js/test_filter.js && python3 -m unittest discover -s tests -t . -v`
-Expected: `all filter.js tests passed` a všechny Python testy OK, včetně `test_static`.
+Expected: `all filter.js tests passed` and all Python tests OK, including `test_static`.
 
-- [ ] **Step 7: Kontrola proti reálným datům**
+- [ ] **Step 7: Check against real data**
 
 Run:
 ```bash
@@ -2749,26 +2749,26 @@ curl -s -o /dev/null -w 'app.js %{http_code}\n' http://127.0.0.1:7334/app.js
 curl -s -o /dev/null -w 'filter.js %{http_code}\n' http://127.0.0.1:7334/filter.js
 open http://127.0.0.1:7334/
 ```
-Expected: `200` pro všechny tři soubory a stránka se otevře v prohlížeči. Ověř ručně:
-- řádky seskupené podle adresáře,
-- 🟢/🟡 u běžících sessions,
-- hledání „563“ ukáže PROJ-563 v `acme/shop`,
-- rozbalení řádku ukáže detail,
-- „Kopírovat“ vloží `cd '…/acme/shop' && claude --resume …`,
-- změna stavu na „hotovo“ řádek schová a ten se zobrazí znovu při hledání,
-- napiš poznámku, počkej přes 10 s (proběhne refresh) a pak klikni mimo pole: poznámka zůstane a po dalším refreshi se nevrátí.
+Expected: `200` for all three files and the page opens in the browser. Verify manually:
+- rows grouped by directory,
+- 🟢/🟡 on running sessions,
+- searching "563" shows PROJ-563 in `acme/shop`,
+- expanding a row shows the details,
+- "Copy" pastes `cd '…/acme/shop' && claude --resume …`,
+- changing the status to "done" hides the row, and it shows up again when searching,
+- type a note, wait more than 10 s (a refresh runs) and then click outside the field: the note stays and does not revert after the next refresh.
 
 Potom `kill $SRV`.
 
-- [ ] **Step 8: Kontrola XSS s fixture**
+- [ ] **Step 8: XSS check with a fixture**
 
 Run:
 ```bash
 FX="$TMPDIR/cd-xss"; rm -rf "$FX"; mkdir -p "$FX/projects/-w-x" "$FX/sessions"
-printf '%s\n' '{"type":"user","message":{"content":"<img src=x onerror=alert(1)> <b>tučně</b>"},"timestamp":"2026-10-07T10:00:00Z","uuid":"u1","cwd":"/w/x","gitBranch":"master"}' > "$FX/projects/-w-x/00000001-0000-4000-8000-000000000000.jsonl"
+printf '%s\n' '{"type":"user","message":{"content":"<img src=x onerror=alert(1)> <b>bold</b>"},"timestamp":"2026-10-07T10:00:00Z","uuid":"u1","cwd":"/w/x","gitBranch":"master"}' > "$FX/projects/-w-x/00000001-0000-4000-8000-000000000000.jsonl"
 python3 server.py --port 7335 --claude-dir "$FX" --data-dir "$FX/data" & SRV=$!; sleep 2; open http://127.0.0.1:7335/
 ```
-Expected: v řádku je doslova vidět text `<img src=x onerror=alert(1)> <b>tučně</b>`. Žádný alert, žádný tučný text. Potom `kill $SRV`.
+Expected: the row literally shows the text `<img src=x onerror=alert(1)> <b>bold</b>`. No alert, no bold text. Then `kill $SRV`.
 
 - [ ] **Step 9: Commit**
 
@@ -2781,7 +2781,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 9: launchd nasazení, README, ověření na reálných datech
+### Task 9: launchd deployment, README, verification on real data
 
 **Files:**
 - Create: `launchd/install.sh`
@@ -2789,15 +2789,15 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Create: `README.md`
 
 **Interfaces:**
-- Consumes: `server.py`, `sessions.py`, `live.py`, `notes.py`, `iterm.py`, `static/*` a `server.main` CLI (`--port`).
-- Produces: běžící LaunchAgent `local.claude-sessions-dashboard` na `http://127.0.0.1:7333/`.
+- Consumes: `server.py`, `sessions.py`, `live.py`, `notes.py`, `iterm.py`, `static/*` and the `server.main` CLI (`--port`).
+- Produces: a running LaunchAgent `local.claude-sessions-dashboard` at `http://127.0.0.1:7333/`.
 
-- [ ] **Step 1: Napsat `launchd/install.sh`**
+- [ ] **Step 1: Write `launchd/install.sh`**
 
 ```bash
 #!/bin/bash
-# Nasadí dashboard do ~/Library/Application Support/claude-dashboard/app a zaregistruje LaunchAgent.
-# Spouštěj znovu po každé změně kódu (zkopíruje soubory a restartuje agenta).
+# Deploys the dashboard to ~/Library/Application Support/claude-dashboard/app and registers the LaunchAgent.
+# Run again after every code change (it copies the files and restarts the agent).
 set -euo pipefail
 
 LABEL="local.claude-sessions-dashboard"
@@ -2847,21 +2847,21 @@ launchctl bootstrap "$DOMAIN" "$PLIST"
 
 for _ in $(seq 1 40); do
   if curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
-    echo "OK: dashboard běží na http://127.0.0.1:$PORT/"
+    echo "OK: dashboard is running at http://127.0.0.1:$PORT/"
     exit 0
   fi
   sleep 0.25
 done
-echo "Server neodpovídá na portu $PORT, viz log: $LOG" >&2
+echo "Server is not responding on port $PORT, see log: $LOG" >&2
 tail -n 20 "$LOG" >&2 || true
 exit 1
 ```
 
-- [ ] **Step 2: Napsat `launchd/uninstall.sh`**
+- [ ] **Step 2: Write `launchd/uninstall.sh`**
 
 ```bash
 #!/bin/bash
-# Zastaví a odregistruje LaunchAgent a smaže nasazenou kopii aplikace. Poznámky (notes.json) ponechá.
+# Stops and unregisters the LaunchAgent and deletes the deployed copy of the application. Keeps the notes (notes.json).
 set -euo pipefail
 
 LABEL="local.claude-sessions-dashboard"
@@ -2871,68 +2871,68 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 rm -f "$PLIST"
 rm -rf "$SUPPORT_DIR/app"
-echo "Odinstalováno. Poznámky zůstaly v: $SUPPORT_DIR/notes.json"
+echo "Uninstalled. Notes were kept in: $SUPPORT_DIR/notes.json"
 ```
 
 Run: `chmod +x launchd/install.sh launchd/uninstall.sh`
 
-- [ ] **Step 3: Napsat `README.md`**
+- [ ] **Step 3: Write `README.md`**
 
 ````markdown
 # Claude Sessions Dashboard
 
-Lokální přehled všech Claude Code sessions z `~/.claude`: adresář, Jira issue / téma, větev, poslední prompty,
-živý stav (🟢 busy / 🟡 idle), vlastní stav a poznámka. Session jde obnovit přes kopírování příkazu
-`cd … && claude --resume …` nebo přímo v novém iTerm2 tabu.
+A local overview of all Claude Code sessions from `~/.claude`: directory, Jira issue / topic, branch, recent prompts,
+live status (🟢 busy / 🟡 idle), custom status and note. A session can be resumed by copying the command
+`cd … && claude --resume …` or directly in a new iTerm2 tab.
 
-**Adresa:** http://127.0.0.1:7333/ (jen localhost)
+**Address:** http://127.0.0.1:7333/ (localhost only)
 
-## Instalace / aktualizace
+## Install / update
 
 ```bash
 ./launchd/install.sh
 ```
 
-- Zkopíruje aplikaci do `~/Library/Application Support/claude-dashboard/app/` a zaregistruje LaunchAgent
-  `local.claude-sessions-dashboard`. Ten startuje při přihlášení a po pádu se restartuje.
-- Po změně kódu spusť `install.sh` znovu.
-- Jiný port: `CLAUDE_DASHBOARD_PORT=7400 ./launchd/install.sh`.
+- Copies the application to `~/Library/Application Support/claude-dashboard/app/` and registers the LaunchAgent
+  `local.claude-sessions-dashboard`. It starts at login and restarts after a crash.
+- After a code change, run `install.sh` again.
+- Different port: `CLAUDE_DASHBOARD_PORT=7400 ./launchd/install.sh`.
 
-## Odinstalace
+## Uninstall
 
 ```bash
 ./launchd/uninstall.sh
 ```
 
-Poznámky zůstanou v `~/Library/Application Support/claude-dashboard/notes.json`.
+Notes stay in `~/Library/Application Support/claude-dashboard/notes.json`.
 
-## Vývoj
+## Development
 
 ```bash
-python3 server.py --port 7334 --data-dir "$TMPDIR/cd-dev"   # běží přímo z repa
-python3 -m unittest discover -s tests -t . -v               # všechny testy (vč. node testu filter.js)
+python3 server.py --port 7334 --data-dir "$TMPDIR/cd-dev"   # runs directly from the repo
+python3 -m unittest discover -s tests -t . -v               # all tests (incl. the filter.js node test)
 ```
 
-- Log LaunchAgentu: `~/Library/Logs/claude-dashboard.log`.
-- „Otevřít v iTerm2“: při prvním použití se macOS zeptá na povolení ovládání iTerm2. Když ho odmítneš,
-  povol ho v Nastavení systému → Soukromí a zabezpečení → Automatizace.
-- Claude Code staré transcripty maže (nastavení `cleanupPeriodDays`). Takové sessions z dashboardu zmizí
-  a nejdou obnovit.
+- LaunchAgent log: `~/Library/Logs/claude-dashboard.log`.
+- "Open in iTerm2": on first use macOS asks for permission to control iTerm2. If you deny it,
+  allow it in System Settings → Privacy & Security → Automation.
+- Claude Code deletes old transcripts (the `cleanupPeriodDays` setting). Such sessions disappear from the dashboard
+  and cannot be resumed.
 
 Design: `docs/superpowers/specs/2026-10-07-claude-sessions-dashboard-design.md`
 ````
 
-- [ ] **Step 4: Spustit všechny testy**
+- [ ] **Step 4: Run all tests**
 
 Run: `python3 -m unittest discover -s tests -t . -v`
-Expected: všechny testy OK (0 failures, 0 errors).
+Expected: all tests OK (0 failures, 0 errors).
 
-- [ ] **Step 5: Ověřit volný port a nainstalovat**
+- [ ] **Step 5: Verify the port is free and install**
 
-Run: `lsof -nP -iTCP:7333 -sTCP:LISTEN || echo "port 7333 volný"` a pak `./launchd/install.sh`
-Expected: `port 7333 volný` a potom `OK: dashboard běží na http://127.0.0.1:7333/`.
+Run: `lsof -nP -iTCP:7333 -sTCP:LISTEN || echo "port 7333 free"` and then `./launchd/install.sh`
+Expected: `port 7333 free` and then `OK: dashboard is running at http://127.0.0.1:7333/`.
 
-- [ ] **Step 6: Ověřit na reálných datech**
+- [ ] **Step 6: Verify on real data**
 
 Run:
 ```bash
@@ -2942,37 +2942,37 @@ d = json.load(sys.stdin); rows = {r['session_id'][:8]: r for r in d['rows']}
 print('rows', len(d['rows']), 'live', sum(1 for r in d['rows'] if r['live']), 'hosts', d['jira_hosts'])
 r = rows.get('bd117c05'); print('PROJ-563:', r and (r['display_dir'], r['branch'], r['jira_key'], r['resume_cmd']))
 c = rows.get('cd6e5aad'); print('fork:', c and [o['session_id'][:8] for o in c['older_copies']])
-print('b0372375 jako samostatný řádek:', 'b0372375' in rows)
+print('b0372375 as a separate row:', 'b0372375' in rows)
 "
 launchctl print "gui/$(id -u)/local.claude-sessions-dashboard" | grep -E 'state|pid'
 ```
 Expected:
 - `bd117c05` → `('acme/shop', 'me/bugfix/PROJ-563-duplicate-orders', 'PROJ-563', "cd /Users/me/Documents/Development/acme/shop && claude --resume bd117c05-…")`.
 - `fork: ['b0372375']`.
-- `b0372375 jako samostatný řádek: False`.
+- `b0372375 as a separate row: False`.
 - `live` ≥ 1.
 - `state = running`.
 
-Pokud log hlásí `Operation not permitted`, nasazená kopie se pokouší číst z `~/Documents`. Zkontroluj, že plist ukazuje na `~/Library/Application Support/claude-dashboard/app/server.py`.
+If the log reports `Operation not permitted`, the deployed copy is trying to read from `~/Documents`. Check that the plist points to `~/Library/Application Support/claude-dashboard/app/server.py`.
 
-**Kontrola TCC pro `cwd-missing`:** server spuštěný přes launchd volá `os.stat()` na cwd pod `~/Documents`.
-1. Ověř, jestli macOS ukázal dialog „python3 chce přístup ke složce Dokumenty“.
-   - Když ho uživatel povolí, `cwd-missing` funguje.
-   - Když ho zamítne, `stat` vrací EPERM. `cwd_missing` pak vrací False, varování se nikdy neukáže, ale nic jiného se nerozbije.
-2. Ověř skutečný stav. Najdi v `/api/sessions` session s neexistujícím adresářem a podívej se, jestli má `cwd-missing`:
+**TCC check for `cwd-missing`:** the server started via launchd calls `os.stat()` on cwd under `~/Documents`.
+1. Check whether macOS showed the dialog "python3 would like to access files in your Documents folder".
+   - If the user allows it, `cwd-missing` works.
+   - If the user denies it, `stat` returns EPERM. `cwd_missing` then returns False, the warning never shows, but nothing else breaks.
+2. Check the actual state. Find a session with a nonexistent directory in `/api/sessions` and see whether it has `cwd-missing`:
    ```bash
    curl -s http://127.0.0.1:7333/api/sessions | python3 -c "import json,sys,os; [print(r['session_id'][:8], r['cwd'], r['warnings']) for r in json.load(sys.stdin)['rows'] if r['cwd'] and not os.path.exists(r['cwd'])]"
    ```
-   Tento příkaz běží z terminálu, takže `os.path.exists` vidí pravdu. Pokud se vypsané řádky liší od očekávání (chybí jim `cwd-missing`), stat pod launchd dostává EPERM. Řekni to uživateli: varování o smazaných adresářích bude fungovat až po povolení přístupu k Dokumentům pro python3 v Nastavení systému → Soukromí a zabezpečení → Soubory a složky.
+   This command runs from the terminal, so `os.path.exists` sees the truth. If the printed rows differ from expectations (they lack `cwd-missing`), stat under launchd gets EPERM. Tell the user: the warning about deleted directories will work only after python3 is allowed access to Documents in System Settings → Privacy & Security → Files & Folders.
 
-- [ ] **Step 7: Ruční test „Otevřít v iTerm2“ (s uživatelem)**
+- [ ] **Step 7: Manual test "Open in iTerm2" (with the user)**
 
-Otevři http://127.0.0.1:7333/, najdi neběžící session a klikni „▶ Otevřít“.
+Open http://127.0.0.1:7333/, find a non-running session and click "▶ Open".
 Expected:
-- macOS se napoprvé zeptá na oprávnění pro ovládání iTerm2. Povolit.
-- Otevře se nový iTerm2 tab s `cd … && claude --resume …` a Claude obnoví session.
+- On first use macOS asks for permission to control iTerm2. Allow it.
+- A new iTerm2 tab opens with `cd … && claude --resume …` and Claude resumes the session.
 
-Když přijde chyba, UI ukáže toast s textem z osascriptu a do `~/Library/Logs/claude-dashboard.log` se zapíše chyba požadavku (502).
+If an error comes up, the UI shows a toast with the text from osascript and a request error (502) is written to `~/Library/Logs/claude-dashboard.log`.
 
 - [ ] **Step 8: Commit**
 

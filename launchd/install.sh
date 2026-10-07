@@ -1,6 +1,6 @@
 #!/bin/bash
-# Nasadí dashboard do ~/Library/Application Support/claude-dashboard/app a zaregistruje LaunchAgent.
-# Spouštěj znovu po každé změně kódu (zkopíruje soubory a restartuje agenta).
+# Deploys the dashboard to ~/Library/Application Support/claude-dashboard/app and registers the LaunchAgent.
+# Run it again after every code change (copies the files and restarts the agent).
 set -euo pipefail
 
 LABEL="local.claude-sessions-dashboard"
@@ -50,11 +50,11 @@ launchctl bootstrap "$DOMAIN" "$PLIST"
 
 for _ in $(seq 1 40); do
   if curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
-    echo "OK: dashboard běží na http://127.0.0.1:$PORT/"
+    echo "OK: dashboard is running at http://127.0.0.1:$PORT/"
     exit 0
   fi
   sleep 0.25
 done
-echo "Server neodpovídá na portu $PORT, viz log: $LOG" >&2
+echo "Server is not responding on port $PORT, see log: $LOG" >&2
 tail -n 20 "$LOG" >&2 || true
 exit 1

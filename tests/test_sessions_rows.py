@@ -85,11 +85,11 @@ class BuildRowsTest(unittest.TestCase):
 
     def test_title_with_foreign_key_is_suspect(self):
         s = self.session(1, [custom_title("PROJ-494 Route partner traffic", sid(1)),
-                             user("začni na https://acme.atlassian.net/browse/PROJ-563", ts="2026-01-01T00:00:00Z", uuid="u1", cwd=SHOP)])
+                             user("start on https://acme.atlassian.net/browse/PROJ-563", ts="2026-01-01T00:00:00Z", uuid="u1", cwd=SHOP)])
         r = self.rows([s])[0][sid(1)]
         self.assertTrue(r["title_suspect"])
         self.assertEqual(r["jira_key"], "PROJ-563")
-        self.assertEqual(r["topic"], "začni na https://acme.atlassian.net/browse/PROJ-563")
+        self.assertEqual(r["topic"], "start on https://acme.atlassian.net/browse/PROJ-563")
 
     def test_same_title_different_keys_in_same_project_is_suspect(self):
         a = self.session(1, [custom_title("country variables refactoring", sid(1)),
@@ -111,19 +111,19 @@ class BuildRowsTest(unittest.TestCase):
         by_id = self.rows([a, b, c])[0]
         self.assertFalse(by_id[sid(1)]["title_suspect"])
         self.assertFalse(by_id[sid(2)]["title_suspect"])
-        self.assertTrue(by_id[sid(3)]["title_suspect"])  # (a): klíč z titulku není v jeho větvích
+        self.assertTrue(by_id[sid(3)]["title_suspect"])  # (a): the title's key is not in its branches
 
     def test_topic_fallbacks(self):
         url_title = self.session(1, [custom_title("https://acme.atlassian.net/browse/PROJ-369 Remove legacy column", sid(1)),
                                      user("x https://acme.atlassian.net/browse/PROJ-369", ts="2026-01-01T00:00:00Z", uuid="u1", cwd=SHOP)])
-        no_title = self.session(2, [user("Koukám na\n\ntento účet", ts="2026-01-01T00:00:00Z", uuid="u2", cwd=SHOP)])
-        only_last = self.session(3, [last_prompt("poslední věc", sid(3))])
+        no_title = self.session(2, [user("Looking at\n\nthis account", ts="2026-01-01T00:00:00Z", uuid="u2", cwd=SHOP)])
+        only_last = self.session(3, [last_prompt("last thing", sid(3))])
         nothing = self.session(4, [custom_title("PROJ-1", sid(4))])
         by_id = self.rows([url_title, no_title, only_last, nothing])[0]
         self.assertEqual(by_id[sid(1)]["topic"], "Remove legacy column")
-        self.assertEqual(by_id[sid(2)]["topic"], "Koukám na tento účet")
-        self.assertEqual(by_id[sid(3)]["topic"], "poslední věc")
-        self.assertEqual(by_id[sid(4)]["topic"], "(bez popisu)")
+        self.assertEqual(by_id[sid(2)]["topic"], "Looking at this account")
+        self.assertEqual(by_id[sid(3)]["topic"], "last thing")
+        self.assertEqual(by_id[sid(4)]["topic"], "(no description)")
         self.assertTrue(by_id[sid(3)]["is_stub"])
         self.assertIsNone(by_id[sid(3)]["resume_cmd"])
 
@@ -135,7 +135,7 @@ class BuildRowsTest(unittest.TestCase):
     def test_cwd_missing_real_check(self):
         with tempfile.TemporaryDirectory() as d:
             self.assertFalse(sessions.cwd_missing(d))
-            self.assertTrue(sessions.cwd_missing(d + "/neexistuje"))
+            self.assertTrue(sessions.cwd_missing(d + "/does-not-exist"))
 
 
 if __name__ == "__main__":

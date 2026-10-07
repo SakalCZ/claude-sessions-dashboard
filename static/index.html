@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="cs">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -84,14 +84,14 @@
 <header>
   <div class="bar">
     <h1>Claude Sessions</h1>
-    <input id="q" type="search" placeholder="Hledat: PROJ-563, větev, adresář, text promptu, poznámka…  ( / )" autocomplete="off">
-    <label class="tog"><input id="running" type="checkbox"> jen běžící</label>
-    <label class="tog"><input id="stubs" type="checkbox"> zobrazit prázdné</label>
-    <label class="tog">seskupit
+    <input id="q" type="search" placeholder="Search: PROJ-563, branch, directory, prompt text, note…  ( / )" autocomplete="off">
+    <label class="tog"><input id="running" type="checkbox"> running only</label>
+    <label class="tog"><input id="stubs" type="checkbox"> show empty</label>
+    <label class="tog">group by
       <select id="group">
-        <option value="dir">podle adresáře</option>
-        <option value="issue">podle issue</option>
-        <option value="none">neseskupovat</option>
+        <option value="dir">directory</option>
+        <option value="issue">issue</option>
+        <option value="none">none</option>
       </select>
     </label>
     <span id="count"></span>
@@ -100,7 +100,7 @@
   <div class="chips" id="statuses"></div>
 </header>
 <div id="banner" hidden></div>
-<main id="list"><p class="empty">Načítám…</p></main>
+<main id="list"><p class="empty">Loading…</p></main>
 <div id="toasts"></div>
 <script src="/filter.js"></script>
 <script src="/app.js"></script>

@@ -1,4 +1,4 @@
-"""Parsování Claude Code transcriptů (~/.claude/projects/*/*.jsonl) na řádky dashboardu."""
+"""Parse Claude Code transcripts (~/.claude/projects/*/*.jsonl) into dashboard rows."""
 from __future__ import annotations
 
 import json
@@ -26,12 +26,12 @@ TITLE_PREFIX_RE = re.compile(r"^\s*(?:https?://\S+\s*)?(?:[A-Z][A-Z0-9]{1,9}[- ]
 
 
 def encode_cwd(cwd: str) -> str:
-    """Stejné kódování, jakým Claude Code pojmenovává složky v ~/.claude/projects."""
+    """The same encoding Claude Code uses to name folders in ~/.claude/projects."""
     return re.sub(r"[^A-Za-z0-9]", "-", cwd)
 
 
 def prompt_text(rec: dict) -> str | None:
-    """Text skutečného promptu uživatele, nebo None pro meta/systémové záznamy a tool results."""
+    """Text of a real user prompt, or None for meta/system records and tool results."""
     if rec.get("type") != "user" or any(rec.get(flag) for flag in SKIP_FLAGS):
         return None
     content = (rec.get("message") or {}).get("content")
@@ -57,13 +57,13 @@ def prompt_text(rec: dict) -> str | None:
 
 
 def clean_prompt(text: str) -> str:
-    """Nahradí vložený obsah krátkou ukázkou; řádkování ponechá."""
+    """Replace pasted content with a short snippet; keep line breaks."""
 
     def replace(match: re.Match) -> str:
         flat = " ".join(match.group(1).split())
         if not flat:
-            return "[vloženo]"
-        return f"[vloženo: {flat[:60]}{'…' if len(flat) > 60 else ''}]"
+            return "[pasted]"
+        return f"[pasted: {flat[:60]}{'…' if len(flat) > 60 else ''}]"
 
     return PASTED_RE.sub(replace, text)
 
@@ -171,8 +171,8 @@ def _pick_cwd(cwds: list[str], project_dir: str, warnings: list[str]) -> str | N
 
 
 class _SessionParser:
-    """Akumuluje stav z JSONL řádků. Transcripty jsou append-only, takže parser umí pokračovat
-    od posledního kompletního řádku; neukončený poslední řádek nechá na příště."""
+    """Accumulates state from JSONL lines. Transcripts are append-only, so the parser can resume
+    from the last complete line; an unterminated last line is left for the next feed."""
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
@@ -191,7 +191,7 @@ class _SessionParser:
         self.hosts: dict[str, str] = {}
 
     def feed(self) -> None:
-        """Zpracuje kompletní řádky od `offset` do konce souboru. OSError propaguje."""
+        """Process complete lines from `offset` to the end of the file. Propagates OSError."""
         with open(self.path, "rb") as fh:
             fh.seek(self.offset)
             data = fh.read()
@@ -246,7 +246,7 @@ class _SessionParser:
         self.prompts.append(clean_prompt(text)[:PROMPT_STORE_LIMIT])
 
     def session(self, mtime: float) -> Session:
-        """Nový Session (kopie stavu), aby další `feed` neměnil už vydané objekty."""
+        """A new Session (a copy of the state), so a later `feed` never mutates objects already handed out."""
         s = Session(session_id=self.path.stem, path=str(self.path), project_dir=self.path.parent.name, mtime=mtime)
         s.title = self.custom_title or self.agent_name
         s.last_prompt = self.last_prompt
@@ -289,8 +289,8 @@ class _CacheEntry:
 
 
 class SessionCache:
-    """Drží rozparsované sessions. Nezměněný soubor (mtime_ns, size) se nečte; soubor, který jen narostl,
-    se dočte od posledního kompletního řádku; jinak (zkrácený / přepsaný) se parsuje znovu celý."""
+    """Keeps parsed sessions. An unchanged file (mtime_ns, size) is not read; a file that only grew
+    is read from the last complete line; otherwise (truncated / rewritten) it is parsed again in full."""
 
     def __init__(self, claude_dir: Path) -> None:
         self.projects_dir = Path(claude_dir) / "projects"
@@ -344,7 +344,7 @@ class SessionCache:
 
 
 def cwd_missing(cwd: str) -> bool:
-    """True jen když adresář prokazatelně neexistuje; jiné chyby (např. TCC) = nevíme → False."""
+    """True only when the directory provably does not exist; other errors (e.g. TCC) mean unknown → False."""
     try:
         os.stat(cwd)
     except FileNotFoundError:
@@ -378,7 +378,7 @@ def topic_for(s: Session, suspect: bool) -> str:
         return one_line(s.prompts[0], 140)
     if s.last_prompt:
         return one_line(clean_prompt(s.last_prompt), 140)
-    return "(bez popisu)"
+    return "(no description)"
 
 
 def _search_text(s: Session) -> str:
