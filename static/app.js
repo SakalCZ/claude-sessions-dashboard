@@ -173,7 +173,11 @@
     if (r.live) items.push(dt("Běží"), el("dd", {}, `${r.live.status}, pid ${r.live.pid}`));
     if (r.warnings.length) items.push(dt("Varování"), el("dd", { class: "warn" }, warnText(r)));
     if (r.older_copies.length) {
-      items.push(dt("Starší kopie"), el("dd", {}, r.older_copies.map((c) => `${c.session_id}  (${fmt(c.last_ts)}, ${c.prompt_count} ${plural(c.prompt_count)})`).join("\n")));
+      items.push(dt("Starší kopie"), el("dd", {}, r.older_copies.map((c) => el("div", {},
+        `${c.session_id}  (${fmt(c.last_ts)}, ${c.prompt_count} ${plural(c.prompt_count)})`,
+        c.jira_keys.length ? [" · ", c.jira_keys.map((k, i) => [i ? ", " : null, jiraLink(k)])] : null,
+        c.branches.length ? ` · ${c.branches.join(" → ")}` : null,
+        c.resume_cmd ? [" ", el("button", { type: "button", title: c.resume_cmd, onclick: () => copyText(c.resume_cmd) }, "⧉ Kopírovat")] : null))));
     }
     return el("div", { class: "details" },
       el("dl", {}, items),

@@ -43,6 +43,13 @@ class GetLiveTest(unittest.TestCase):
         self.assertEqual(list(live.get_live(self.fake.root, ps=fake_ps)), [sid(5)])
         self.assertEqual(seen, [500])
 
+    def test_non_string_fields_are_skipped(self):
+        self.fake.write_pid(600, {"pid": 600, "sessionId": sid(6), "procStart": 1791370693253})
+        self.fake.write_pid(700, {"pid": 700, "sessionId": 7, "procStart": START})
+        self.pid_file(800, sid(8))
+        result = live.get_live(self.fake.root, ps=lambda pids: {600: START, 700: START, 800: START})
+        self.assertEqual(list(result), [sid(8)])
+
     def test_missing_sessions_dir(self):
         self.assertEqual(live.get_live(self.fake.root / "nope", ps=lambda pids: {}), {})
 

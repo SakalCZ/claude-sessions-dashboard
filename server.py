@@ -50,7 +50,11 @@ class App:
 
     def snapshot(self) -> dict:
         rows, hosts = sessions.build_rows(self.cache.load(), dev_root=self.dev_root, is_missing=self.is_missing)
-        live_map = self.live_fn(self.claude_dir)
+        try:
+            live_map = self.live_fn(self.claude_dir)
+        except Exception as e:  # poškozený pid soubor apod. – přehled musí fungovat i bez živého stavu
+            print(f"live: {e!r}", file=sys.stderr, flush=True)
+            live_map = {}
         all_notes = self.notes.all()
         for row in rows:
             row["live"] = live_map.get(row["session_id"])
@@ -75,12 +79,16 @@ class App:
         inherited = row.get("note")
         if inherited and session_id not in self.notes.all():
             fields = {"status": inherited.get("status"), "note": inherited.get("note") or "", **fields}
+            entry = self.notes.update(session_id, **fields)
+            # Převzatá poznámka se přesouvá: jinak by se po smazání na hlavním řádku vrátila ze starší kopie.
+            self.notes.remove([c["session_id"] for c in row.get("older_copies", [])])
+            return entry
         return self.notes.update(session_id, **fields)
 
     def open_session(self, row: dict) -> tuple[int, dict]:
         if not row.get("resume_cmd"):
             return 409, {"ok": False, "error": "Session nemá známý adresář."}
-        if "cwd-missing" in row.get("warnings", []):
+        if "cwd-missing" in row.get("warnings", []) or self.is_missing(row["cwd"]):
             return 409, {"ok": False, "error": f"Adresář {row['cwd']} už neexistuje."}
         ok, error = self.opener(row["resume_cmd"])
         return (200, {"ok": True}) if ok else (502, {"ok": False, "error": error})
@@ -106,6 +114,22 @@ class Handler(BaseHTTPRequestHandler):
         return {f"127.0.0.1:{self.app.port}", f"localhost:{self.app.port}"}
 
     def do_GET(self):
+        self._safely(self._handle_get)
+
+    def do_POST(self):
+        self._safely(self._handle_post)
+
+    def _safely(self, handler) -> None:
+        try:
+            handler()
+        except Exception as e:  # server musí běžet dál a klient dostat odpověď (spec §10)
+            self.log_error("chyba při zpracování %s: %r", self.path, e)
+            try:
+                self._json({"error": f"interní chyba: {e}"}, 500)
+            except OSError:
+                pass
+
+    def _handle_get(self):
         if self.headers.get("Host") not in self._allowed_hosts():
             return self._json({"error": "forbidden host"}, 403)
         path = self.path.split("?", 1)[0]
@@ -118,7 +142,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(self.app.snapshot())
         return self._json({"error": "not found"}, 404)
 
-    def do_POST(self):
+    def _handle_post(self):
         allowed = self._allowed_hosts()
         if self.headers.get("Host") not in allowed:
             return self._json({"error": "forbidden host"}, 403)

@@ -26,6 +26,13 @@ const tests = {
   "search finds stub"() {
     assert.strictEqual(F.matches(row({ is_stub: true, branches: ["me/bugfix/PROJ-584-x"] }), prefs({ q: "proj-584" })), true);
   },
+  "search finds keys, branches and ids of older copies"() {
+    const r = row({ jira_keys: ["PROJ-538"], older_copies: [{ session_id: "b0372375-x", jira_keys: ["PROJ-466"], branches: ["me/feature/PROJ-466-cleanup"] }] });
+    assert.strictEqual(F.matches(r, prefs({ q: "proj-466" })), true);
+    assert.strictEqual(F.matches(r, prefs({ q: "b0372375" })), true);
+    assert.strictEqual(F.matches(r, prefs({ q: "466-cleanup" })), true);
+    assert.strictEqual(F.matches(row(), prefs({ q: "proj-466" })), false);
+  },
   "stubs hidden without search unless enabled"() {
     assert.strictEqual(F.matches(row({ is_stub: true }), prefs()), false);
     assert.strictEqual(F.matches(row({ is_stub: true }), prefs({ showStubs: true })), true);

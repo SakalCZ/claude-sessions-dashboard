@@ -45,7 +45,11 @@ def get_live(claude_dir: Path, ps=ps_lstart) -> dict[str, dict]:
             continue
         if not isinstance(data, dict):
             continue
-        if not isinstance(data.get("pid"), int) or not data.get("sessionId") or not data.get("procStart"):
+        if not isinstance(data.get("pid"), int):
+            continue
+        if not isinstance(data.get("sessionId"), str) or not data["sessionId"]:
+            continue
+        if not isinstance(data.get("procStart"), str) or not data["procStart"]:
             continue
         entries.append(data)
     starts = ps([e["pid"] for e in entries])

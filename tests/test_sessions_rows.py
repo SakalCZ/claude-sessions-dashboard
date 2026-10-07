@@ -62,7 +62,20 @@ class BuildRowsTest(unittest.TestCase):
                                  user("c", ts="2026-09-15T11:29:00Z", uuid="u3", cwd=SHOP)])
         by_id, rows, _ = self.rows([older, newer])
         self.assertEqual(list(by_id), [sid(2)])
-        self.assertEqual(by_id[sid(2)]["older_copies"], [{"session_id": sid(1), "last_ts": "2026-08-26T13:23:00Z", "prompt_count": 2}])
+        [copy] = by_id[sid(2)]["older_copies"]
+        self.assertEqual({k: copy[k] for k in ("session_id", "last_ts", "prompt_count")},
+                         {"session_id": sid(1), "last_ts": "2026-08-26T13:23:00Z", "prompt_count": 2})
+
+    def test_older_copy_keys_and_resume_are_kept(self):
+        older = self.session(1, [user("a", ts="2026-08-25T11:39:50Z", uuid="root", cwd=SHOP, branch="me/feature/PROJ-466-cleanup")])
+        newer = self.session(2, [user("a", ts="2026-08-25T11:39:50Z", uuid="root", cwd=SHOP, branch="me/feature/PROJ-466-cleanup"),
+                                 user("c", ts="2026-09-15T11:29:00Z", uuid="u3", cwd=SHOP, branch="me/feature/PROJ-538-x")])
+        older2 = self.session(3, [user("a", ts="2026-08-25T11:39:50Z", uuid="root", cwd=SHOP, branch="me/feature/PROJ-467-y")])
+        by_id = self.rows([older, newer, older2])[0]
+        copies = {c["session_id"]: c for c in by_id[sid(2)]["older_copies"]}
+        self.assertEqual(copies[sid(3)]["jira_keys"], ["PROJ-467"])
+        self.assertEqual(copies[sid(3)]["branches"], ["me/feature/PROJ-467-y"])
+        self.assertEqual(shlex.split(copies[sid(1)]["resume_cmd"]), ["cd", SHOP, "&&", "claude", "--resume", sid(1)])
 
     def test_rows_sorted_by_last_activity(self):
         a = self.session(1, [user("a", ts="2026-01-01T00:00:00Z", uuid="u1", cwd=SHOP)])

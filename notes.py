@@ -52,6 +52,13 @@ class NotesStore:
             self._write(data)
         return {"status": entry.get("status"), "note": entry.get("note") or "", "updated_at": entry["updated_at"]}
 
+    def remove(self, session_ids) -> None:
+        with self._lock:
+            data = self._read()
+            removed = [sid for sid in session_ids if data.pop(sid, None) is not None]
+            if removed:
+                self._write(data)
+
     def _read(self) -> dict[str, dict]:
         try:
             raw = self.path.read_text(encoding="utf-8")

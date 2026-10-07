@@ -148,5 +148,40 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(body["note"], {"status": "waiting", "note": "nová", "updated_at": body["note"]["updated_at"]})
 
 
+    def test_open_rechecks_missing_cwd_after_snapshot(self):
+        self.rows()  # snapshot s existujícím adresářem
+        self.missing = True  # adresář smazán mezi refreshem a kliknutím
+        status, body = self.request("POST", f"/api/open/{sid(1)}", {})
+        self.assertEqual(status, 409)
+        self.assertIn("neexistuje", body["error"])
+        self.assertEqual(self.opened, [])
+
+    def test_sessions_survive_failing_live_fn(self):
+        def boom(_):
+            raise TypeError("bad pid file")
+        self.app.live_fn = boom
+        status, payload = self.request("GET", "/api/sessions")
+        self.assertEqual(status, 200)
+        self.assertIsNone(payload["rows"][0]["live"])
+
+    def test_unexpected_error_returns_json_500(self):
+        def boom():
+            raise RuntimeError("kaboom")
+        self.app.snapshot = boom
+        status, body = self.request("GET", "/api/sessions")
+        self.assertEqual(status, 500)
+        self.assertIn("error", body)
+
+    def test_inherited_status_can_be_cleared(self):
+        self.fake.write_session(CWD, sid(2), [
+            user("Analyzuj https://acme.atlassian.net/browse/PROJ-563", ts="2026-10-01T10:00:00Z", uuid="u1", cwd=CWD),
+        ])
+        self.app.notes.update(sid(2), status="done")
+        self.assertEqual(self.rows()[sid(1)]["note"]["status"], "done")
+        status, _ = self.request("POST", f"/api/notes/{sid(1)}", {"status": None})
+        self.assertEqual(status, 200)
+        self.assertIsNone(self.rows()[sid(1)]["note"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -11,6 +11,8 @@
     return [
       r.session_id, (r.jira_keys || []).join(" "), r.topic, r.title || "", (r.branches || []).join(" "),
       r.display_dir, r.worktree || "", r.cwd || "", r.search_text || "", (r.note && r.note.note) || "",
+      // Starší kopie (forky) – jejich větve a klíče musí jít najít, i když řádek ukazuje novější kopii.
+      ...(r.older_copies || []).map((c) => [c.session_id, (c.jira_keys || []).join(" "), (c.branches || []).join(" ")].join(" ")),
     ].join("\n").toLowerCase();
   }
 

@@ -415,7 +415,12 @@ def _row(s: Session, older: list[Session], by_title, dev_root: Path, is_missing)
         "recent_prompts": [one_line(p, 500) for p in s.prompts[-5:]],
         "search_text": _search_text(s),
         "older_copies": [
-            {"session_id": o.session_id, "last_ts": o.last_ts, "prompt_count": len(o.prompts)} for o in older
+            {
+                "session_id": o.session_id, "last_ts": o.last_ts, "prompt_count": len(o.prompts),
+                "jira_keys": o.jira_keys, "branches": o.branches,
+                "resume_cmd": resume_command(o.cwd, o.session_id) if o.cwd else None,
+            }
+            for o in older
         ],
         "warnings": warnings,
         "resume_cmd": resume_command(s.cwd, s.session_id) if s.cwd else None,

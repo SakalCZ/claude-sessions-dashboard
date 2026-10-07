@@ -53,6 +53,12 @@ class NotesStoreTest(unittest.TestCase):
         self.assertIsNone(entry["status"])
         self.assertEqual(self.store.all(), {})
 
+    def test_remove_entries(self):
+        self.store.update("s1", status="done")
+        self.store.update("s2", note="x")
+        self.store.remove(["s1", "neni"])
+        self.assertEqual(list(self.store.all()), ["s2"])
+
     def test_corrupt_file_is_backed_up(self):
         self.path.parent.mkdir(parents=True)
         self.path.write_text("{broken", encoding="utf-8")
