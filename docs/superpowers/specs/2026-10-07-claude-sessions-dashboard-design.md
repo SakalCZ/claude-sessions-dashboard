@@ -55,12 +55,16 @@ agent-orgestrator/
 ├── live.py                   # detekce běžících instancí z ~/.claude/sessions
 ├── notes.py                  # čtení a atomický zápis poznámek
 ├── iterm.py                  # otevření nového iTerm2 tabu přes osascript
-├── static/index.html         # jedna stránka: HTML + CSS + vanilla JS, bez buildu
+├── static/
+│   ├── index.html            # markup + CSS
+│   ├── filter.js             # čisté funkce: filtrování, seskupení, relativní čas (testované v Node)
+│   └── app.js                # vykreslení a akce (jen DOM API, žádné innerHTML)
 ├── launchd/
 │   ├── install.sh            # nasazení + registrace LaunchAgentu
 │   └── uninstall.sh
 ├── tests/
-│   ├── fixtures/             # malé ručně psané JSONL a pid soubory
+│   ├── helpers.py            # generuje falešný ~/.claude (JSONL + pid soubory) do temp adresáře
+│   ├── js/test_filter.js     # testy filter.js (node + assert, bez závislostí)
 │   └── test_*.py             # unittest (stdlib)
 └── docs/superpowers/specs/   # tento dokument
 ```
@@ -101,7 +105,7 @@ JSON (např. právě rozepsaný), se přeskočí.
 |---|---|
 | `session_id` | Název souboru bez `.jsonl`. |
 | `project_dir` | Název nadřazené složky v `projects/`. |
-| `cwd` | `cwd` z prvního záznamu, který ho má. **Validace:** `encode(cwd) == project_dir`. Při neshodě se nastaví `warnings += ["cwd-mismatch"]` a jako `cwd` se použije první `cwd`, které shodu splňuje, pokud nějaké existuje. |
+| `cwd` | První `cwd` ze záznamů, které splňuje `encode(cwd) == project_dir`. Když shodu nesplňuje žádné, nastaví se `warnings += ["cwd-mismatch"]` a použije se první nalezené `cwd`. Bez jakéhokoli `cwd`: `warnings += ["no-cwd"]` a `cwd = None` (resume nejde). |
 | `repo` / `worktree` | Pokud `cwd` obsahuje `/.claude/worktrees/<X>`: `repo` = část před `/.claude/worktrees`, `worktree` = `<X>`. Jinak `repo = cwd`, `worktree = None`. |
 | `display_dir` | `repo` relativně k `~/Documents/Development` (např. `acme/shop_2`), mimo tento kořen celá cesta s `~`. |
 | `prompts` | Skutečné prompty uživatele (pravidla v 4.2), chronologicky. |
@@ -118,16 +122,20 @@ JSON (např. právě rozepsaný), se přeskočí.
 
 ### 4.2 Co je „skutečný prompt“
 
-Záznam `type == "user"`, `isMeta != true`, `isSidechain != true` a zároveň:
+Záznam `type == "user"`, žádný z příznaků `isMeta`, `isSidechain`, `isCompactSummary`, `isVisibleInTranscriptOnly`, a zároveň:
 
 - `message.content` je string, nebo list, který obsahuje alespoň jeden blok `type == "text"` a žádný blok `type == "tool_result"`. U listu se texty bloků spojí.
-- Text (po `strip()`) **nezačíná** žádným z prefixů `<local-command-caveat>`, `<command-name>`, `<command-message>`,
-  `<local-command-stdout>`, `<local-command-stderr>`, `<bash-input>`, `<bash-stdout>`, `<bash-stderr>`,
-  `<system-reminder>`, `<task-notification>`, `<user-memory-input>`, `Caveat:`.
+- Text (po `strip()`) nezačíná systémovým tagem `<nazev…` (regex `^<([a-z][a-z0-9_-]*)[\s>]`).
+  Výjimkou je `<pasted_content`, protože to je skutečný vložený obsah od uživatele. Tím se přeskočí
+  `<command-name>`, `<local-command-*>`, `<task-notification>` (v datech 428×), `<artifact-content-…>`,
+  `<system-reminder>` atd.
+- Text nezačíná `Caveat:` ani `[Request interrupted`. Prompty jako `[Image #3] …` nebo vložený výstup
+  terminálu `[me@db1 ~]$ …` jsou skutečné a zůstávají.
 - Text není prázdný.
 
-Pro zobrazení se z promptu odstraní obsah `<pasted_content …>…</pasted_content>` (nahradí se `[vloženo]`)
-a bílé znaky se zkolabují do mezer. Zkrácení na N znaků dělá až klient.
+Pro zobrazení se blok `<pasted_content …>X</pasted_content>` nahradí `[vloženo: <prvních 60 znaků X>]`.
+Bílé znaky se kolabují až při zobrazení. Uloží se nejvýš 2000 znaků z každého promptu. Jira URL se hledají
+v původním textu, včetně vloženého obsahu.
 
 ### 4.3 Jira klíče
 
@@ -162,7 +170,7 @@ aspoň jedno:
 `topic` (krátký popis do řádku):
 
 1. `title`, pokud není podezřelý. Odstraní se z něj úvodní Jira URL nebo klíč, protože klíč se zobrazuje zvlášť.
-2. Jinak první řádek prvního skutečného promptu.
+2. Jinak začátek prvního skutečného promptu (jeden řádek, max. 140 znaků).
 3. Jinak `last_prompt`.
 4. Jinak `"(bez popisu)"`.
 
@@ -220,11 +228,11 @@ Soubor `<data-dir>/notes.json`:
 
 | Metoda | Cesta | Popis |
 |---|---|---|
-| GET | `/` | `static/index.html` |
+| GET | `/`, `/index.html`, `/app.js`, `/filter.js` | statické soubory ze `static/` (pevný whitelist) |
 | GET | `/api/health` | `{"ok": true}` |
 | GET | `/api/sessions` | `{generated_at, jira_hosts, rows: [Row…]}` |
 | POST | `/api/notes/<sessionId>` | Tělo `{"status"?: str\|null, "note"?: str}` → uložený záznam. `status: null` stav smaže. |
-| POST | `/api/open/<sessionId>` | Otevře resume v iTerm2 → `{"ok": true}` nebo `{"ok": false, "error": "…"}` |
+| POST | `/api/open/<sessionId>` | Otevře resume v iTerm2 → 200 `{"ok": true}`. Selhání osascriptu → 502 `{"ok": false, "error": "…"}`. Neznámý nebo neexistující adresář (`no-cwd`, `cwd-missing`) → 409 bez spuštění. |
 
 `Row` (JSON):
 
@@ -232,7 +240,8 @@ Soubor `<data-dir>/notes.json`:
 session_id, cwd, repo, worktree, display_dir, branch, branches[], jira_key, jira_keys[],
 topic, title, title_suspect, first_ts, last_ts, prompt_count, is_stub,
 recent_prompts[]   (posledních 5, nejnovější poslední),
-first_prompt, older_copies[], warnings[],
+first_prompt, search_text (všechny prompty, každý max. 300 znaků, celkem max. 60 000),
+older_copies[], warnings[],
 live: {status, pid} | null,
 note: {status, note, updated_at} | null,
 resume_cmd         ("cd '<cwd>' && claude --resume <id>", quotováno přes shlex.quote)
@@ -241,9 +250,11 @@ resume_cmd         ("cd '<cwd>' && claude --resume <id>", quotováno přes shlex
 Validace a bezpečnost:
 
 - `sessionId` v cestě musí odpovídat `^[0-9a-f-]{36}$` a existovat v indexu, jinak 404.
-- POST endpointy vyžadují `Content-Type: application/json`. Hlavička `Host` musí být `127.0.0.1:<port>`
-  nebo `localhost:<port>`. `Origin`, pokud je přítomen, musí být `http://127.0.0.1:<port>` nebo
-  `http://localhost:<port>`. Jinak 403. To brání tomu, aby cizí web otevřený v prohlížeči volal API.
+- **Všechny** požadavky (i GET) vyžadují hlavičku `Host` `127.0.0.1:<port>` nebo `localhost:<port>`,
+  jinak 403. Tím se brání DNS rebindingu, kdy by cizí web jinak mohl přečíst `/api/sessions` i s obsahem
+  transcriptů.
+- POST endpointy navíc vyžadují `Content-Type: application/json`. `Origin`, pokud je přítomen, musí být
+  `http://127.0.0.1:<port>` nebo `http://localhost:<port>`. Jinak 403.
 - Tělo POST má limit 4 KB.
 - Statické soubory se servírují jen z whitelistu (`/` → `index.html`), žádný obecný file server.
 
@@ -282,7 +293,10 @@ Jen vanilla JS, žádné externí knihovny.
 
 **Horní lišta:**
 
-- Fulltext: case-insensitive, hledá v `jira_keys`, `topic`, `title`, `branches`, `display_dir`, `worktree`, promptech, poznámce a `session_id`.
+- Fulltext: case-insensitive, více slov = všechna musí sedět. Hledá v `jira_keys`, `topic`, `title`,
+  `branches`, `display_dir`, `worktree`, `cwd`, promptech (`search_text`), poznámce a `session_id`.
+  **Při neprázdném hledání se neuplatní skrývání podle stavu ani skrývání stubů**, takže „563“ najde
+  i session označenou jako hotovou. Filtr adresářů a „jen běžící“ platí dál.
 - Chipy adresářů (`display_dir`, multi-select, žádný vybraný = vše).
 - Filtr stavu: ve výchozím stavu skryto `done` a `archived`.
 - Přepínače: „jen běžící“, „zobrazit prázdné“ (stuby jsou ve výchozím stavu skryté).
@@ -314,14 +328,14 @@ zobrazená. Neúspěšné uložení poznámky nebo otevření ukáže toast s ch
 | `ps` selže | všechny sessions bez živého stavu, server běží dál |
 | Poškozený `notes.json` | záloha + prázdné poznámky |
 | osascript selže nebo vyprší timeout | `{"ok": false, "error": …}`, toast v UI |
+| Adresář session už neexistuje (smazaný worktree) | `warnings=["cwd-missing"]`, ⚠ v řádku, „Otevřít“ vrátí 409 s hláškou. Když `stat` selže jinak než `FileNotFoundError` (např. TCC), varování se nenastaví. |
 | Port obsazený | server skončí s jasnou chybou v logu (launchd ho bude restartovat; řeší se změnou portu) |
 
 ## 11. Testování
 
 `python3 -m unittest discover tests`, jen stdlib.
 
-Fixtures jsou malé ručně psané JSONL soubory v `tests/fixtures/claude/projects/...`, plus pid soubory.
-Testy pokrývají:
+Fixtures generuje `tests/helpers.py` do temp adresáře (JSONL i pid soubory). Testy pokrývají:
 
 - **sessions.py:**
   - skutečné prompty vs. meta, příkazy a tool_result,
@@ -346,6 +360,9 @@ Testy pokrývají:
   - 404 pro neznámé id.
   - `iterm.py` se mockuje.
 - **iterm.py:** sestavení `argv` a quotování `cwd` s mezerou a apostrofem (osascript se mockuje).
+- **filter.js:** `node tests/js/test_filter.js` (spouští se i z unittest, pokud je `node` dostupný).
+  Pokrývá hledání vs. skryté stavy, seskupení a relativní čas. Statický test hlídá, že `app.js`
+  nepoužívá `innerHTML` a podobná API, takže text z transcriptů nejde vložit jako HTML.
 
 **Ověření na reálných datech:**
 
