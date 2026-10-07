@@ -2558,7 +2558,10 @@ Expected: Node skončí `Cannot find module '../../static/filter.js'`, Python te
       toast(`Uložení selhalo: ${res.error}`, true);
       return;
     }
-    r.note = res.note && (res.note.status || res.note.note) ? res.note : null;
+    const saved = res.note && (res.note.status || res.note.note) ? res.note : null;
+    // Během psaní mohl proběhnout refresh a nahradit data.rows novými objekty → aktualizuj i aktuální řádek podle id.
+    const current = data.rows.find((x) => x.session_id === r.session_id);
+    for (const target of current && current !== r ? [r, current] : [r]) target.note = saved;
     toast("Uloženo.");
     render();
   }
@@ -2752,7 +2755,8 @@ Expected: `200` pro všechny tři soubory a stránka se otevře v prohlížeči.
 - hledání „563“ ukáže PROJ-563 v `acme/shop`,
 - rozbalení řádku ukáže detail,
 - „Kopírovat“ vloží `cd '…/acme/shop' && claude --resume …`,
-- změna stavu na „hotovo“ řádek schová a ten se zobrazí znovu při hledání.
+- změna stavu na „hotovo“ řádek schová a ten se zobrazí znovu při hledání,
+- napiš poznámku, počkej přes 10 s (proběhne refresh) a pak klikni mimo pole: poznámka zůstane a po dalším refreshi se nevrátí.
 
 Potom `kill $SRV`.
 
@@ -2950,6 +2954,16 @@ Expected:
 - `state = running`.
 
 Pokud log hlásí `Operation not permitted`, nasazená kopie se pokouší číst z `~/Documents`. Zkontroluj, že plist ukazuje na `~/Library/Application Support/claude-dashboard/app/server.py`.
+
+**Kontrola TCC pro `cwd-missing`:** server spuštěný přes launchd volá `os.stat()` na cwd pod `~/Documents`.
+1. Ověř, jestli macOS ukázal dialog „python3 chce přístup ke složce Dokumenty“.
+   - Když ho uživatel povolí, `cwd-missing` funguje.
+   - Když ho zamítne, `stat` vrací EPERM. `cwd_missing` pak vrací False, varování se nikdy neukáže, ale nic jiného se nerozbije.
+2. Ověř skutečný stav. Najdi v `/api/sessions` session s neexistujícím adresářem a podívej se, jestli má `cwd-missing`:
+   ```bash
+   curl -s http://127.0.0.1:7333/api/sessions | python3 -c "import json,sys,os; [print(r['session_id'][:8], r['cwd'], r['warnings']) for r in json.load(sys.stdin)['rows'] if r['cwd'] and not os.path.exists(r['cwd'])]"
+   ```
+   Tento příkaz běží z terminálu, takže `os.path.exists` vidí pravdu. Pokud se vypsané řádky liší od očekávání (chybí jim `cwd-missing`), stat pod launchd dostává EPERM. Řekni to uživateli: varování o smazaných adresářích bude fungovat až po povolení přístupu k Dokumentům pro python3 v Nastavení systému → Soukromí a zabezpečení → Soubory a složky.
 
 - [ ] **Step 7: Ruční test „Otevřít v iTerm2“ (s uživatelem)**
 
