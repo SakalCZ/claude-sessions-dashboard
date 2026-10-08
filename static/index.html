@@ -73,6 +73,31 @@
   .toast { background: var(--panel); border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; max-width: 460px;
            word-break: break-all; box-shadow: 0 4px 16px rgba(0, 0, 0, .4); }
   .toast.err { border-color: var(--red); color: var(--red); }
+  .system { font: 12px var(--mono); color: var(--muted); cursor: pointer; }
+  .system.warn { color: var(--yellow); }
+  .system.critical { color: var(--red); }
+  .system-details { display: flex; gap: 24px; margin-top: 6px; cursor: auto; }
+  .system-details table { border-collapse: collapse; }
+  .system-details th, .system-details td { padding: 1px 10px 1px 0; text-align: left; font-weight: normal; }
+  .system-details th { color: var(--faint); }
+  .alert { padding: 4px 10px; border-radius: 5px; font-size: 12px; }
+  .alert.warn { background: #3a3110; color: var(--yellow); }
+  .alert.critical { background: #3b1d1d; color: var(--red); }
+  #queue { padding: 8px 16px 0; }
+  #queue h2 { font: 600 13px var(--sans); color: var(--text); margin: 8px 0 4px; }
+  #queue h3 { font-size: 12px; color: var(--faint); margin: 8px 0 4px; font-weight: 600; }
+  .queue-empty { color: var(--faint); font-size: 12px; padding: 4px 0; }
+  .queue-item { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 4px 10px; padding: 6px 10px;
+                border: 1px solid var(--border); border-radius: 6px; background: var(--row); margin-bottom: 4px; }
+  .queue-item.blocking { border-color: #6b4a1a; }
+  .qicon { font-size: 14px; }
+  .dot.working { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.waiting { background: var(--accent); }
+  .dot.permission { background: #fb923c; box-shadow: 0 0 6px #fb923c; }
+  .dot.failed { background: var(--red); }
+  .dot.estimate { background: transparent !important; box-shadow: none !important; border: 2px solid var(--muted); }
+  .res { font: 11px var(--mono); color: var(--faint); margin-top: 2px; }
+  .badge { display: inline-block; margin-left: 4px; padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; }
   @media (max-width: 980px) {
     .row { grid-template-columns: 14px minmax(0, 1fr); }
     .dir, .when, .actions { grid-column: 2; }
@@ -98,8 +123,11 @@
   </div>
   <div class="chips" id="dirs"></div>
   <div class="chips" id="statuses"></div>
+  <div id="alerts"></div>
+  <div id="system" class="system"></div>
 </header>
 <div id="banner" hidden></div>
+<section id="queue"></section>
 <main id="list"><p class="empty">Loading…</p></main>
 <div id="toasts"></div>
 <script src="/filter.js"></script>

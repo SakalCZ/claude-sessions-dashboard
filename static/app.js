@@ -9,6 +9,12 @@
     "no-cwd": "unknown directory",
     unreadable: "file cannot be read",
   };
+  const STATE_ICONS = { permission: "🔐", question: "❓", failed: "⚠", waiting: "✅" };
+  const STATE_LABELS = { working: "working", waiting: "waiting", permission: "needs permission",
+    question: "has a question", failed: "failed", idle: "idle", ended: "ended" };
+  const DOT_CLASS = { working: "working", waiting: "waiting", permission: "permission", question: "permission",
+    failed: "failed", idle: "idle" };
+  let systemOpen = false;
   const PREFS_KEY = "claude-dashboard:prefs:v1";
   const REFRESH_MS = 10000;
 
@@ -119,6 +125,91 @@
     render();
   }
 
+  async function focusSession(r) {
+    const res = await post(`/api/focus/${encodeURIComponent(r.session_id)}`, {});
+    if (res.ok) toast("Switched to the session's iTerm2 tab.");
+    else toast(`Could not switch: ${res.error} Use Copy instead.`, true);
+  }
+
+  async function markSeen(r) {
+    const res = await post(`/api/seen/${encodeURIComponent(r.session_id)}`, {});
+    if (!res.ok) {
+      toast(`Could not mark as seen: ${res.error}`, true);
+      return;
+    }
+    const current = data.rows.find((x) => x.session_id === r.session_id);
+    for (const target of current && current !== r ? [r, current] : [r]) {
+      target.attention = Object.assign({}, target.attention, { in_queue: false, group: null });
+    }
+    data.queue = (data.queue || []).filter((id) => id !== r.session_id);
+    render();
+  }
+
+  function renderSystemDetails(s) {
+    const apps = el("table", {}, el("tr", {}, el("th", {}, "App"), el("th", {}, "RAM"), el("th", {}, "CPU")),
+      (s.top_apps || []).map((a) => el("tr", {}, el("td", {}, a.name), el("td", {}, F.formatMB(a.rss_mb)), el("td", {}, `${a.cpu}%`))));
+    const projects = el("table", {},
+      el("tr", {}, el("th", {}, "Docker project"), el("th", {}, "RAM"), el("th", {}, "CPU"), el("th", {}, "Containers")),
+      ((s.docker && s.docker.projects) || []).map((p) => el("tr", { title: p.working_dir || "" },
+        el("td", {}, p.project), el("td", {}, F.formatMB(p.rss_mb)), el("td", {}, `${p.cpu}%`), el("td", {}, p.containers))));
+    return el("div", { class: "system-details", onclick: (e) => e.stopPropagation() }, apps, projects);
+  }
+
+  function renderSystem() {
+    const s = data.system;
+    const box = $("#system");
+    if (!s || !s.sampled_at) {
+      box.className = "system";
+      box.replaceChildren("System: sampling…");
+      $("#alerts").replaceChildren();
+      return;
+    }
+    const m = s.memory || {};
+    const c = s.cpu || {};
+    const swap = m.swap_total_mb ? ` · swap ${F.formatMB(m.swap_used_mb)}/${F.formatMB(m.swap_total_mb)}` : "";
+    const parts = [
+      `RAM ${m.pressure || "?"}${m.free_pct !== null && m.free_pct !== undefined ? ` · ${m.free_pct}% free` : ""}${swap}`,
+      c.load1 !== undefined ? `CPU ${c.load1}/${c.ncpu}` : "CPU ?",
+      s.top_apps ? `Top: ${s.top_apps.slice(0, 3).map((a) => `${a.name} ${F.formatMB(a.rss_mb)}`).join(", ")}` : "Processes unavailable",
+      s.docker && s.docker.running
+        ? `Docker: ${s.docker.projects.slice(0, 3).map((p) => `${p.project} ${F.formatMB(p.rss_mb)}`).join(", ") || "no containers"}`
+        : "Docker: not running",
+    ];
+    box.className = `system ${F.worstLevel(s.alerts)}`;
+    const summary = el("div", { onclick: () => { systemOpen = !systemOpen; render(); } }, parts.join("  │  "));
+    box.replaceChildren(...[summary, systemOpen ? renderSystemDetails(s) : null].filter(Boolean));
+    $("#alerts").replaceChildren(...(s.alerts || []).map((a) =>
+      el("div", { class: `alert ${a.level}` }, `${a.level === "critical" ? "⛔" : "⚠"} ${a.message}`)));
+  }
+
+  function renderQueueItem(r) {
+    const a = r.attention;
+    const mins = F.minutesSince(a.since);
+    return el("div", { class: `queue-item ${a.group}` },
+      el("span", { class: "qicon" }, STATE_ICONS[a.state] || "•"),
+      el("div", { class: "body" },
+        el("div", { class: "main-line" }, r.jira_key ? jiraLink(r.jira_key, "key") : null, el("span", { class: "topic" }, r.topic)),
+        el("div", { class: "sub" }, `${r.display_dir} · ${STATE_LABELS[a.state] || a.state} · waiting ${F.formatWait(mins)}${a.source === "estimate" ? " (estimate)" : ""}`),
+        a.note ? el("div", { class: "prompts" }, a.note) : null),
+      el("div", { class: "actions" },
+        el("button", { type: "button", disabled: !r.tty, title: r.tty ? `Focus the iTerm2 tab on ${r.tty}` : "Terminal unknown", onclick: () => focusSession(r) }, "⇥ Switch"),
+        el("button", { type: "button", onclick: () => markSeen(r) }, "✓ Seen"),
+        el("button", { type: "button", disabled: !r.resume_cmd, onclick: () => copyText(r.resume_cmd) }, "⧉ Copy")));
+  }
+
+  function renderQueue() {
+    const q = F.splitQueue(data.rows, data.queue);
+    const total = q.blocking.length + q.done.length;
+    document.title = total ? `(${total}) Claude Sessions` : "Claude Sessions";
+    const box = $("#queue");
+    if (!loaded) { box.replaceChildren(); return; }
+    if (!total) { box.replaceChildren(el("div", { class: "queue-empty" }, "Nobody is waiting for you")); return; }
+    const parts = [el("h2", {}, `Waiting for you (${total})`)];
+    if (q.blocking.length) parts.push(el("h3", {}, "Blocking"), ...q.blocking.map(renderQueueItem));
+    if (q.done.length) parts.push(el("h3", {}, "Done, waiting"), ...q.done.map(renderQueueItem));
+    box.replaceChildren(...parts);
+  }
+
   function jiraLink(key, cls) {
     const host = data.jira_hosts[key.split("-")[0]];
     if (!host) return el("span", { class: cls || null }, key);
@@ -153,7 +244,9 @@
     });
     return el("div", { class: "actions" },
       el("button", { type: "button", title: r.resume_cmd || "Unknown directory", disabled: !r.resume_cmd, onclick: () => copyText(r.resume_cmd) }, "⧉ Copy"),
-      el("button", { type: "button", title: "Open in a new iTerm2 tab", disabled: !r.resume_cmd, onclick: () => openSession(r) }, "▶ Open"),
+      r.live
+        ? el("button", { type: "button", disabled: !r.tty, title: r.tty ? `Focus the iTerm2 tab on ${r.tty}` : "Terminal unknown", onclick: () => focusSession(r) }, "⇥ Switch")
+        : el("button", { type: "button", title: "Open in a new iTerm2 tab", disabled: !r.resume_cmd, onclick: () => openSession(r) }, "▶ Open"),
       select, note);
   }
 
@@ -195,13 +288,19 @@
       .filter(Boolean).join(" · ");
     const lastPrompts = r.recent_prompts.slice(-2).reverse().map((p) => `» ${trunc(p, 120)}`).join("    ");
     row.append(
-      el("div", { class: `dot ${r.live ? r.live.status : ""}`, title: r.live ? `running (${r.live.status}), pid ${r.live.pid}` : "not running" }),
+      el("div", {
+        class: `dot ${r.live ? (DOT_CLASS[r.attention && r.attention.state] || "idle") : ""}${r.live && r.attention && r.attention.source === "estimate" ? " estimate" : ""}`,
+        title: r.live ? `${STATE_LABELS[r.attention && r.attention.state] || "running"}${r.attention && r.attention.source === "estimate" ? " (estimate)" : ""}, pid ${r.live.pid}` : "not running",
+      }),
       el("div", { class: "body" },
         el("div", { class: "main-line" }, r.jira_key ? jiraLink(r.jira_key, "key") : null, el("span", { class: "topic", title: r.topic }, r.topic)),
         el("div", { class: "sub" }, sub, r.warnings.length ? el("span", { class: "warn", title: warnText(r) }, "  ⚠ " + warnText(r)) : null),
         lastPrompts ? el("div", { class: "prompts" }, lastPrompts) : null),
       el("div", { class: "dir", title: r.cwd || "" }, r.display_dir),
-      el("div", { class: "when", title: fmt(r.last_ts) }, F.relTime(r.last_ts)),
+      el("div", { class: "when", title: fmt(r.last_ts) }, F.relTime(r.last_ts),
+        r.resources ? el("div", { class: "res", title: r.resources.top.map((p) => `${p.name} ${F.formatMB(p.rss_mb)} ${p.cpu}%`).join("\n") },
+          `${F.formatMB(r.resources.rss_mb)} · ${r.resources.cpu}%`,
+          r.resources.stack ? el("span", { class: "badge" }, `stack ${r.resources.stack}`) : null) : null),
       renderActions(r));
     if (open) row.append(renderDetails(r));
     return row;
@@ -230,6 +329,8 @@
     if (isEditing()) { pendingRender = true; return; }
     pendingRender = false;
     renderChips();
+    renderSystem();
+    renderQueue();
     const visible = data.rows.filter((r) => F.matches(r, prefs));
     $("#count").textContent = `showing ${visible.length} of ${data.rows.length}`;
     const out = [];

@@ -86,6 +86,41 @@ const tests = {
     assert.strictEqual(F.relTime(null, now), "");
     assert.strictEqual(F.relTime("nonsense", now), "");
   },
+  "formatMB"() {
+    assert.strictEqual(F.formatMB(312), "312 MB");
+    assert.strictEqual(F.formatMB(4403), "4.3 GB");
+    assert.strictEqual(F.formatMB(null), "");
+  },
+  "minutesSince"() {
+    const now = Date.parse("2026-10-07T12:00:00Z");
+    assert.strictEqual(F.minutesSince("2026-10-07T11:48:00Z", now), 12);
+    assert.strictEqual(F.minutesSince("2026-10-07T12:30:00Z", now), 0);
+    assert.strictEqual(F.minutesSince("nonsense", now), null);
+  },
+  "splitQueue keeps server order and splits groups"() {
+    const rows = [
+      row({ session_id: "a", attention: { group: "done" } }),
+      row({ session_id: "b", attention: { group: "blocking" } }),
+      row({ session_id: "c", attention: { group: "done" } }),
+    ];
+    const q = F.splitQueue(rows, ["b", "c", "a", "missing"]);
+    assert.deepStrictEqual(q.blocking.map((r) => r.session_id), ["b"]);
+    assert.deepStrictEqual(q.done.map((r) => r.session_id), ["c", "a"]);
+    assert.deepStrictEqual(F.splitQueue(rows, undefined), { blocking: [], done: [] });
+  },
+  "formatWait"() {
+    assert.strictEqual(F.formatWait(12), "12 min");
+    assert.strictEqual(F.formatWait(125), "2 h");
+    assert.strictEqual(F.formatWait(1440), "1 day");
+    assert.strictEqual(F.formatWait(53190), "36 days");
+    assert.strictEqual(F.formatWait(null), "?");
+  },
+  "worstLevel"() {
+    assert.strictEqual(F.worstLevel([]), "ok");
+    assert.strictEqual(F.worstLevel(undefined), "ok");
+    assert.strictEqual(F.worstLevel([{ level: "warn" }]), "warn");
+    assert.strictEqual(F.worstLevel([{ level: "warn" }, { level: "critical" }]), "critical");
+  },
   "dirCounts ignores stubs and sorts by name"() {
     const rows = [row({ display_dir: "budget" }), row({ display_dir: "acme/shop" }), row({ display_dir: "acme/shop" }), row({ display_dir: "x", is_stub: true })];
     assert.deepStrictEqual(F.dirCounts(rows), [{ dir: "acme/shop", count: 2 }, { dir: "budget", count: 1 }]);

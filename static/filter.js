@@ -71,5 +71,40 @@
     return Array.from(counts, ([dir, count]) => ({ dir, count })).sort((a, b) => a.dir.localeCompare(b.dir));
   }
 
-  return { NO_ISSUE, matches, groupRows, relTime, dirCounts };
+  function formatMB(mb) {
+    if (mb === null || mb === undefined) return "";
+    return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+  }
+
+  function minutesSince(ts, now) {
+    const t = Date.parse(ts);
+    if (Number.isNaN(t)) return null;
+    return Math.max(0, Math.floor(((now === undefined ? Date.now() : now) - t) / 60000));
+  }
+
+  function formatWait(mins) {
+    if (mins === null || mins === undefined) return "?";
+    if (mins < 60) return `${mins} min`;
+    if (mins < 1440) return `${Math.floor(mins / 60)} h`;
+    const days = Math.floor(mins / 1440);
+    return days === 1 ? "1 day" : `${days} days`;
+  }
+
+  function splitQueue(rows, queue) {
+    const byId = new Map(rows.map((r) => [r.session_id, r]));
+    const out = { blocking: [], done: [] };
+    for (const id of queue || []) {
+      const r = byId.get(id);
+      if (r) (r.attention && r.attention.group === "blocking" ? out.blocking : out.done).push(r);
+    }
+    return out;
+  }
+
+  function worstLevel(alerts) {
+    const list = alerts || [];
+    if (list.some((a) => a.level === "critical")) return "critical";
+    return list.length ? "warn" : "ok";
+  }
+
+  return { NO_ISSUE, matches, groupRows, relTime, dirCounts, formatMB, minutesSince, formatWait, splitQueue, worstLevel };
 });
