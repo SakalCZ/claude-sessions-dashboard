@@ -11,15 +11,19 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import agents
+import config as config_mod
 import iterm
 import live
+import monitor as monitor_mod
 import notes as notes_mod
+import notifier as notifier_mod
 import sessions
 
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_PORT = 7333
 SESSION_ID_RE = re.compile(r"^[0-9a-f-]{36}$")
-POST_PATH_RE = re.compile(r"/api/(notes|open)/([^/?#]+)")
+POST_PATH_RE = re.compile(r"/api/(notes|open|seen|focus)/([^/?#]+)")
 MAX_BODY = 4096
 STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -35,7 +39,8 @@ def now_iso() -> str:
 
 class App:
     def __init__(self, claude_dir, data_dir, *, static_dir=APP_DIR / "static", opener=iterm.open_in_iterm,
-                 live_fn=live.get_live, dev_root=sessions.DEV_ROOT, is_missing=sessions.cwd_missing) -> None:
+                 live_fn=live.get_live, dev_root=sessions.DEV_ROOT, is_missing=sessions.cwd_missing,
+                 config=None, monitor=None, notifier=None, focuser=iterm.focus_tty) -> None:
         self.claude_dir = Path(claude_dir)
         self.static_dir = Path(static_dir)
         self.cache = sessions.SessionCache(self.claude_dir)
@@ -47,6 +52,13 @@ class App:
         self.port = DEFAULT_PORT
         self._rows: dict[str, dict] = {}
         self._lock = threading.Lock()
+        data_dir = Path(data_dir)
+        self.config = config if config is not None else config_mod.load_config(data_dir / "config.json")
+        self.agents_dir = data_dir / "agents"
+        self.seen = agents.SeenStore(data_dir / "seen.json")
+        self.monitor = monitor if monitor is not None else monitor_mod.Monitor(self.config)
+        self.notifier = notifier if notifier is not None else notifier_mod.Notifier(self.config)
+        self.focuser = focuser
 
     def snapshot(self) -> dict:
         rows, hosts = sessions.build_rows(self.cache.load(), dev_root=self.dev_root, is_missing=self.is_missing)
@@ -61,9 +73,48 @@ class App:
             row["note"] = all_notes.get(row["session_id"]) or next(
                 (all_notes[c["session_id"]] for c in row["older_copies"] if c["session_id"] in all_notes), None
             )
+        hook_states = agents.read_hook_states(self.agents_dir)
+        seen = self.seen.all()
+        system = self.monitor.snapshot()
+        projects = (system.get("docker") or {}).get("projects") or []
+        for row in rows:
+            live_entry = row["live"]
+            hook = hook_states.get(row["session_id"])
+            row["attention"] = agents.attention_for(hook, live_entry, seen.get(row["session_id"]))
+            usage = self.monitor.tree_usage(live_entry["pid"]) if live_entry else None
+            row["tty"] = ((hook or {}).get("tty") or (usage or {}).get("tty")) if live_entry else None
+            if usage is not None:
+                usage = {k: v for k, v in usage.items() if k != "tty"}
+                usage["stack"] = monitor_mod.stack_for(row, projects, self.config["docker_project_dirs"], self.dev_root)
+            row["resources"] = usage
         with self._lock:
             self._rows = {r["session_id"]: r for r in rows}
-        return {"generated_at": now_iso(), "jira_hosts": hosts, "rows": rows}
+        return {"generated_at": now_iso(), "jira_hosts": hosts, "rows": rows,
+                "queue": agents.build_queue(rows), "system": system}
+
+    def mark_seen(self, session_id: str) -> str:
+        return self.seen.mark(session_id, now_iso())
+
+    def focus_session(self, row: dict) -> tuple[int, dict]:
+        if not row.get("live"):
+            return 409, {"ok": False, "error": "Session is not running."}
+        tty = row.get("tty")
+        if not tty:
+            return 409, {"ok": False, "error": "Session has no known terminal."}
+        result, error = self.focuser(tty)
+        if result == "ok":
+            return 200, {"ok": True}
+        if result == "notfound":
+            return 404, {"ok": False, "error": f"No iTerm2 tab found for {tty}."}
+        return 502, {"ok": False, "error": error or "osascript failed"}
+
+    def tick(self) -> None:
+        payload = self.snapshot()
+        self.notifier.check_queue(payload["rows"])
+        self.notifier.check_alerts(payload["system"].get("alerts") or [])
+
+    def start_background(self) -> None:
+        self.monitor.start(on_sample=self.tick)
 
     def find_row(self, session_id: str) -> dict | None:
         with self._lock:
@@ -140,6 +191,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if path == "/api/sessions":
             return self._json(self.app.snapshot())
+        if path == "/api/system":
+            return self._json(self.app.monitor.snapshot())
         return self._json({"error": "not found"}, 404)
 
     def _handle_post(self):
@@ -162,6 +215,12 @@ class Handler(BaseHTTPRequestHandler):
         row = self.app.find_row(session_id)
         if row is None:
             return self._json({"error": "unknown session"}, 404)
+        if action == "seen":
+            return self._json({"ok": True, "seen_at": self.app.mark_seen(session_id)})
+        if action == "focus":
+            self.app.snapshot()
+            status, payload = self.app.focus_session(self.app.find_row(session_id) or row)
+            return self._json(payload, status)
         if action == "notes":
             fields = {k: body[k] for k in ("status", "note") if k in body}
             try:
@@ -237,7 +296,7 @@ def main(argv=None) -> int:
     except OSError as e:
         print(f"Cannot open port {args.port}: {e}", file=sys.stderr, flush=True)
         return 1
-    threading.Thread(target=app.cache.load, name="warmup", daemon=True).start()
+    app.start_background()
     print(f"Claude Sessions Dashboard: http://127.0.0.1:{app.port}/", flush=True)
     try:
         httpd.serve_forever()

@@ -61,5 +61,6 @@ def get_live(claude_dir: Path, ps=ps_lstart) -> dict[str, dict]:
                 "pid": e["pid"],
                 "name": e.get("name"),
                 "updated_at": e.get("updatedAt"),
+                "status_updated_at": e.get("statusUpdatedAt"),
             }
     return result

@@ -5,10 +5,44 @@ import threading
 import unittest
 from pathlib import Path
 
+import config
 import server
 from tests.helpers import FakeClaude, assistant, sid, user
 
 CWD = "/w/acme/shop"
+
+
+class FakeMonitor:
+    def __init__(self):
+        self.usage = {42: {"rss_mb": 300, "cpu": 4.0, "processes": 3, "top": [], "tty": "ttys003"}}
+        self.system = {
+            "sampled_at": "2026-10-08T10:00:00Z", "memory": {"pressure": "warn", "free_pct": 38,
+            "swap_used_mb": 1, "swap_total_mb": 2}, "cpu": {"load1": 1.0, "ncpu": 8}, "top_apps": [],
+            "processes_ok": True, "alerts": [{"kind": "memory", "level": "warn", "message": "m", "since": "x"}],
+            "docker": {"running": True, "sampled_at": "x", "projects": [
+                {"project": "shared-stack", "working_dir": "/elsewhere/app", "rss_mb": 900, "cpu": 1.0, "containers": 3}]},
+        }
+        self.started = None
+
+    def snapshot(self):
+        return json.loads(json.dumps(self.system))
+
+    def tree_usage(self, pid):
+        return dict(self.usage[pid]) if pid in self.usage else None
+
+    def start(self, on_sample=None):
+        self.started = on_sample
+
+
+class FakeNotifier:
+    def __init__(self):
+        self.rows, self.alerts = None, None
+
+    def check_queue(self, rows):
+        self.rows = rows
+
+    def check_alerts(self, alerts):
+        self.alerts = alerts
 
 
 class ServerTest(unittest.TestCase):
@@ -32,10 +66,23 @@ class ServerTest(unittest.TestCase):
             self.opened.append(cmd)
             return self.open_result
 
+        self.focus_result = ("ok", None)
+        self.focused = []
+
+        def focuser(tty):
+            self.focused.append(tty)
+            return self.focus_result
+
+        cfg = config.load_config(Path(self.data.name) / "config.json")
+        cfg["docker_project_dirs"] = {"shared-stack": "acme/shop"}
+        self.monitor = FakeMonitor()
+        self.notifier = FakeNotifier()
         self.app = server.App(
             self.fake.root, self.data.name, static_dir=self.static.name, opener=opener,
-            live_fn=lambda d: {sid(1): {"status": "idle", "pid": 42, "name": "x", "updated_at": 1}},
+            live_fn=lambda d: {sid(1): {"status": "idle", "pid": 42, "name": "x", "updated_at": 1,
+                                        "status_updated_at": 1790000000000}},
             dev_root=Path("/w"), is_missing=lambda c: self.missing,
+            config=cfg, monitor=self.monitor, notifier=self.notifier, focuser=focuser,
         )
         self.httpd = server.DashboardServer(("127.0.0.1", 0), self.app)
         threading.Thread(target=self.httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
@@ -181,6 +228,60 @@ class ServerTest(unittest.TestCase):
         status, _ = self.request("POST", f"/api/notes/{sid(1)}", {"status": None})
         self.assertEqual(status, 200)
         self.assertIsNone(self.rows()[sid(1)]["note"])
+
+
+    def test_payload_has_attention_resources_queue_system(self):
+        payload = self.request("GET", "/api/sessions")[1]
+        [row] = payload["rows"]
+        self.assertEqual(row["attention"]["state"], "waiting")
+        self.assertEqual(row["attention"]["source"], "estimate")
+        self.assertEqual(payload["queue"], [sid(1)])
+        self.assertEqual(row["resources"]["rss_mb"], 300)
+        self.assertEqual(row["resources"]["stack"], "shared-stack")
+        self.assertNotIn("tty", row["resources"])
+        self.assertEqual(row["tty"], "ttys003")
+        self.assertEqual(payload["system"]["memory"]["pressure"], "warn")
+
+    def test_hook_state_overrides_estimate(self):
+        agents_dir = Path(self.data.name) / "agents"
+        agents_dir.mkdir()
+        (agents_dir / f"{sid(1)}.json").write_text(json.dumps(
+            {"state": "permission", "since": "2026-10-08T10:01:00Z", "note": "Bash", "tty": "ttys009"}))
+        row = self.rows()[sid(1)]
+        self.assertEqual((row["attention"]["state"], row["attention"]["source"], row["tty"]),
+                         ("permission", "hook", "ttys009"))
+
+    def test_seen_endpoint(self):
+        status, body = self.request("POST", f"/api/seen/{sid(1)}", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        payload = self.request("GET", "/api/sessions")[1]
+        self.assertEqual(payload["queue"], [])
+        self.assertFalse(payload["rows"][0]["attention"]["in_queue"])
+        self.assertEqual(self.request("POST", f"/api/seen/{sid(99)}", {})[0], 404)
+        self.assertEqual(self.request("POST", f"/api/seen/{sid(1)}", {}, {"Origin": "http://evil.example"})[0], 403)
+
+    def test_focus_endpoint(self):
+        self.assertEqual(self.request("POST", f"/api/focus/{sid(1)}", {}), (200, {"ok": True}))
+        self.assertEqual(self.focused, ["ttys003"])
+        self.focus_result = ("notfound", None)
+        self.assertEqual(self.request("POST", f"/api/focus/{sid(1)}", {})[0], 404)
+        self.focus_result = ("error", "boom")
+        self.assertEqual(self.request("POST", f"/api/focus/{sid(1)}", {}), (502, {"ok": False, "error": "boom"}))
+        self.app.live_fn = lambda d: {}
+        self.assertEqual(self.request("POST", f"/api/focus/{sid(1)}", {})[0], 409)
+
+    def test_system_endpoint(self):
+        self.assertEqual(self.request("GET", "/api/system"), (200, self.monitor.system))
+
+    def test_tick_feeds_notifier(self):
+        self.app.tick()
+        self.assertEqual([r["session_id"] for r in self.notifier.rows], [sid(1)])
+        self.assertEqual(self.notifier.alerts, self.monitor.system["alerts"])
+
+    def test_start_background_registers_tick(self):
+        self.app.start_background()
+        self.assertEqual(self.monitor.started, self.app.tick)
 
 
 if __name__ == "__main__":

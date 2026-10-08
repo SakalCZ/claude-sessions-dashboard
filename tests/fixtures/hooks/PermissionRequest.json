@@ -1,0 +1,31 @@
+{
+  "cwd": "/Users/me/Documents/Development/acme/shop",
+  "effort": {
+    "level": "x"
+  },
+  "hook_event_name": "PermissionRequest",
+  "permission_mode": "default",
+  "permission_suggestions": [
+    {
+      "destination": "x",
+      "directories": [
+        "x"
+      ],
+      "type": "x"
+    },
+    {
+      "destination": "x",
+      "mode": "x",
+      "type": "x"
+    }
+  ],
+  "prompt_id": "x",
+  "scratchpad_dir": "x",
+  "session_id": "00000000-0000-4000-8000-0000000000aa",
+  "tool_input": {
+    "command": "x",
+    "description": "x"
+  },
+  "tool_name": "Bash",
+  "transcript_path": "/Users/me/.claude/projects/-Users-me-Documents-Development-acme-shop/00000000-0000-4000-8000-0000000000aa.jsonl"
+}
