@@ -41,6 +41,27 @@ class SettingsMergeTest(unittest.TestCase):
             self.assertEqual(data["hooks"][event][-1], OURS)
         self.assertEqual(len(self.backups()), 1)
 
+    def test_shared_group_keeps_foreign_hooks(self):
+        shared = {"hooks": [CC["hooks"][0], OURS["hooks"][0]]}
+        self.write({"hooks": {"Stop": [shared]}})
+        sm.install(self.path, CMD)
+        self.assertEqual(self.read()["hooks"]["Stop"], [CC, OURS])
+        sm.uninstall(self.path)
+        self.assertEqual(self.read(), {"hooks": {"Stop": [CC]}})
+
+    def test_symlinked_settings_stays_a_symlink(self):
+        target_dir = Path(self.tmp.name, "dotfiles")
+        target_dir.mkdir()
+        target = target_dir / "settings.json"
+        target.write_text(json.dumps({"hooks": {"Stop": [CC]}}), encoding="utf-8")
+        os.symlink(target, self.path)
+        sm.install(self.path, CMD)
+        self.assertTrue(self.path.is_symlink())
+        self.assertEqual(json.loads(target.read_text(encoding="utf-8"))["hooks"]["Stop"], [CC, OURS])
+        sm.uninstall(self.path)
+        self.assertTrue(self.path.is_symlink())
+        self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"hooks": {"Stop": [CC]}})
+
     def test_install_is_idempotent(self):
         self.write({"hooks": {"Stop": [CC]}})
         sm.install(self.path, CMD)

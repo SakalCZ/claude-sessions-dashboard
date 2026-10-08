@@ -32,6 +32,22 @@ def _is_ours(group) -> bool:
     return any(isinstance(h, dict) and MARKER in str(h.get("command", "")) for h in group["hooks"])
 
 
+def _is_our_hook(hook) -> bool:
+    return isinstance(hook, dict) and MARKER in str(hook.get("command", ""))
+
+
+def _without_ours(group):
+    """The group with our hook entries removed; None when nothing else is left in it."""
+    if not _is_ours(group):
+        return group
+    kept = [h for h in group["hooks"] if not _is_our_hook(h)]
+    return {**group, "hooks": kept} if kept else None
+
+
+def _strip(groups: list) -> list:
+    return [g for g in (_without_ours(g) for g in groups) if g is not None]
+
+
 def add_hooks(settings: dict, command: str) -> dict:
     hooks = settings.setdefault("hooks", {})
     if not isinstance(hooks, dict):
@@ -41,7 +57,7 @@ def add_hooks(settings: dict, command: str) -> dict:
             raise MergeError(f"settings.hooks.{event} is not a list")
     ours = {"hooks": [{"type": "command", "command": command, "async": True, "timeout": 5}]}
     for event in EVENTS:
-        hooks[event] = [g for g in hooks.get(event, []) if not _is_ours(g)] + [ours]
+        hooks[event] = _strip(hooks.get(event, [])) + [ours]
     return settings
 
 
@@ -53,8 +69,8 @@ def remove_hooks(settings: dict) -> dict:
         groups = hooks[event]
         if not isinstance(groups, list):
             continue
-        kept = [g for g in groups if not _is_ours(g)]
-        if len(kept) == len(groups):
+        kept = _strip(groups)
+        if kept == groups:
             continue
         if kept:
             hooks[event] = kept
@@ -110,7 +126,7 @@ def _write(path: Path, text: str) -> None:
 
 
 def install(path: Path, command: str) -> None:
-    path = Path(path)
+    path = Path(os.path.realpath(path))  # write through a symlinked settings.json (dotfiles), never replace the link
     data = _load(path)
     if data is None:
         _write(path, _dump(add_hooks({}, command)))
@@ -123,7 +139,7 @@ def install(path: Path, command: str) -> None:
 
 
 def uninstall(path: Path) -> None:
-    path = Path(path)
+    path = Path(os.path.realpath(path))
     data = _load(path)
     if data is None:
         return

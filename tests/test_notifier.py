@@ -85,8 +85,29 @@ class NotifierTest(unittest.TestCase):
         self.n.check_alerts(crit)
         self.assertEqual(self.sent[-1], ("Mac resources: critical", "Memory pressure is critical."))
         self.n.check_alerts([])
+        self.n.check_alerts(warn)  # flapping back to warn within the reminder window: no new notification
+        self.assertEqual(len(self.sent), 3)
+        self.now += 3600
         self.n.check_alerts(warn)
         self.assertEqual(len(self.sent), 4)
+
+    def test_flapping_alert_respects_reminder(self):
+        warn = [{"kind": "memory", "level": "warn", "message": "w"}]
+        for _ in range(60):  # flips every 30 s for half an hour
+            self.n.check_alerts(warn)
+            self.now += 15
+            self.n.check_alerts([])
+            self.now += 15
+        self.assertEqual(len(self.sent), 1)
+        self.n.check_alerts([{"kind": "memory", "level": "critical", "message": "c"}])
+        self.assertEqual(len(self.sent), 2)
+
+    def test_bad_tick_does_not_renotify(self):
+        self.now = T_SINCE + 120
+        self.n.check_queue([row()])
+        self.n.check_queue([])  # e.g. ps timed out: every row looked ended for one tick
+        self.n.check_queue([row()])
+        self.assertEqual(len(self.sent), 1)
 
     def test_send_notification_argv_and_failure(self):
         calls = []
