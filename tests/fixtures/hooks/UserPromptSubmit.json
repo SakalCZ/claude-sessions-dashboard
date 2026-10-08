@@ -1,0 +1,9 @@
+{
+  "cwd": "/Users/me/Documents/Development/acme/shop",
+  "hook_event_name": "UserPromptSubmit",
+  "permission_mode": "auto",
+  "prompt": "x",
+  "prompt_id": "x",
+  "session_id": "00000000-0000-4000-8000-0000000000aa",
+  "transcript_path": "/Users/me/.claude/projects/-Users-me-Documents-Development-acme-shop/00000000-0000-4000-8000-0000000000aa.jsonl"
+}

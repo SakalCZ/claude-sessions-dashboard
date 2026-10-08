@@ -1,0 +1,15 @@
+{
+  "background_tasks": [],
+  "cwd": "/Users/me/Documents/Development/acme/shop",
+  "effort": {
+    "level": "x"
+  },
+  "hook_event_name": "Stop",
+  "last_assistant_message": "Example text line one.\nExample text line two.",
+  "permission_mode": "auto",
+  "prompt_id": "x",
+  "session_crons": [],
+  "session_id": "00000000-0000-4000-8000-0000000000aa",
+  "stop_hook_active": false,
+  "transcript_path": "/Users/me/.claude/projects/-Users-me-Documents-Development-acme-shop/00000000-0000-4000-8000-0000000000aa.jsonl"
+}
