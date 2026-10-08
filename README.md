@@ -23,6 +23,45 @@ You can resume a session by copying `cd … && claude --resume …` or by openin
 - **Missing directories:** a session whose directory no longer exists (for example a removed worktree) is flagged and is not opened.
 - **Speed:** transcripts are append-only, so the server reads only new lines and refreshes are cheap even for large files.
 
+## Waiting for you, and resources
+
+- **Attention queue:** sessions where Claude finished a turn or is blocked on you (a permission prompt, a question, an
+  error). Blocking ones are listed first, oldest first. **Switch** focuses the session's existing iTerm2 tab;
+  **Seen** hides it until the next turn.
+- **How it knows:** `install.sh` registers a small async hook (`hook/claude_hook.py`) for eight Claude Code events in
+  `~/.claude/settings.json`. It writes a backup first and keeps all your other hooks. `uninstall.sh` removes only the
+  dashboard's entries.
+- **Before the hook has seen a session**, its state is estimated from Claude Code's own status and marked
+  "(estimate)".
+- **Resources:**
+  - per session: RAM and CPU of the Claude process and everything it started;
+  - for the whole Mac: memory pressure, swap, CPU load, the top apps, and Docker usage per compose project.
+- **Warnings:** a banner and a macOS notification when the kernel reports memory pressure, or when the CPU stays
+  overloaded.
+- **Queue notifications:** a session blocked for more than 60 s, or done and waiting for more than 10 min, notifies
+  once.
+
+### Configuration
+
+Optional `~/Library/Application Support/claude-dashboard/config.json`; missing keys use the defaults:
+
+```json
+{
+  "permission_notify_after_s": 60,
+  "waiting_notify_after_s": 600,
+  "resource_reminder_after_s": 3600,
+  "cpu_load_factor": 1.0,
+  "cpu_sustain_s": 120,
+  "process_sample_interval_s": 10,
+  "docker_sample_interval_s": 30,
+  "notifications_enabled": true,
+  "docker_project_dirs": {"my-shared-stack": "acme/shop_local"}
+}
+```
+
+`docker_project_dirs` attributes a compose project whose `working_dir` lies outside the session's repository (e.g.
+a stack shared by several worktrees) to a directory below `~/Documents/Development`.
+
 ## Requirements
 
 - macOS (the LaunchAgent and the iTerm2 integration are macOS-specific)

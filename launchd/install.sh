@@ -14,8 +14,21 @@ PYTHON="$(command -v python3)"
 DOMAIN="gui/$(id -u)"
 
 mkdir -p "$APP_DIR/static" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
-cp "$REPO_DIR"/server.py "$REPO_DIR"/sessions.py "$REPO_DIR"/live.py "$REPO_DIR"/notes.py "$REPO_DIR"/iterm.py "$APP_DIR/"
+mkdir -p "$APP_DIR/hook"
+cp "$REPO_DIR"/{server,sessions,live,notes,iterm,agents,monitor,notifier,settings_merge,config}.py "$APP_DIR/"
+cp "$REPO_DIR"/hook/claude_hook.py "$APP_DIR/hook/"
 cp "$REPO_DIR"/static/index.html "$REPO_DIR"/static/app.js "$REPO_DIR"/static/filter.js "$APP_DIR/static/"
+
+HOOK_CMD="\"$PYTHON\" '$APP_DIR/hook/claude_hook.py'"
+if ! "$PYTHON" "$APP_DIR/settings_merge.py" install "$HOME/.claude/settings.json" "$HOOK_CMD"; then
+  echo "Could not register the Claude Code hooks in ~/.claude/settings.json (see above). Nothing was changed there." >&2
+  exit 1
+fi
+
+# launchd starts agents with a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin); docker usually lives elsewhere.
+SERVICE_PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+DOCKER_BIN="$(command -v docker || true)"
+if [ -n "$DOCKER_BIN" ]; then SERVICE_PATH="$(dirname "$DOCKER_BIN"):$SERVICE_PATH"; fi
 
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -30,6 +43,10 @@ cat > "$PLIST" <<EOF
     <string>--port</string>
     <string>$PORT</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>$SERVICE_PATH</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
