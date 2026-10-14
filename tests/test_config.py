@@ -47,6 +47,12 @@ class ConfigTest(unittest.TestCase):
                     self.assertEqual(config.load_config(self.path), config.DEFAULTS)
                 self.assertIn("config:", err.getvalue())
 
+    def test_limit_thresholds(self):
+        self.assertEqual((config.DEFAULTS["limit_warn_pct"], config.DEFAULTS["limit_critical_pct"]), (80, 95))
+        self.write({"limit_warn_pct": 70, "limit_critical_pct": "high"})
+        cfg = config.load_config(self.path)
+        self.assertEqual((cfg["limit_warn_pct"], cfg["limit_critical_pct"]), (70, 95))
+
     def test_defaults_are_not_shared(self):
         cfg = config.load_config(self.path)
         cfg["docker_project_dirs"]["x"] = "y"
