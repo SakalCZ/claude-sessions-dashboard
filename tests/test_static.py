@@ -19,6 +19,7 @@ class StaticFilesTest(unittest.TestCase):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
         self.assertLess(html.index('src="/filter.js"'), html.index('src="/app.js"'))
         self.assertIn("<title>Claude Sessions</title>", html)
+        self.assertIn('id="limits"', html)
         self.assertNotRegex(html, r'(src|href)\s*=\s*["\']?(https?:)?//')  # no external scripts/styles/CDN
 
     def test_filter_js_under_node(self):

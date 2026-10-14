@@ -76,6 +76,12 @@
   .system { font: 12px var(--mono); color: var(--muted); cursor: pointer; }
   .system.warn { color: var(--yellow); }
   .system.critical { color: var(--red); }
+  .system.stale { color: var(--faint); }
+  .meter { display: inline-block; width: 60px; height: 7px; border-radius: 4px; background: var(--chip); overflow: hidden;
+           vertical-align: middle; }
+  .meter > span { display: block; height: 100%; background: var(--green); }
+  .meter.warn > span { background: var(--yellow); }
+  .meter.critical > span { background: var(--red); }
   .system-details { display: flex; gap: 24px; margin-top: 6px; cursor: auto; }
   .system-details table { border-collapse: collapse; }
   .system-details th, .system-details td { padding: 1px 10px 1px 0; text-align: left; font-weight: normal; }
@@ -125,6 +131,7 @@
   <div class="chips" id="statuses"></div>
   <div id="alerts"></div>
   <div id="system" class="system"></div>
+  <div id="limits" class="system"></div>
 </header>
 <div id="banner" hidden></div>
 <section id="queue"></section>

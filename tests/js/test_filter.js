@@ -11,6 +11,36 @@ const row = (o) => Object.assign({}, base, o);
 const prefs = (o) => Object.assign({ q: "", dirs: [], hide: ["done", "archived"], runningOnly: false, showStubs: false }, o);
 
 const tests = {
+  "search finds model and effort"() {
+    const r = row({ model_label: "Fable 5.1", effort: "xhigh" });
+    assert.strictEqual(F.matches(r, prefs({ q: "fable" })), true);
+    assert.strictEqual(F.matches(r, prefs({ q: "xhigh" })), true);
+    assert.strictEqual(F.matches(row(), prefs({ q: "fable" })), false);
+  },
+  "formatCountdown"() {
+    const now = Date.parse("2026-10-14T13:40:00Z");
+    assert.strictEqual(F.formatCountdown("2026-10-14T14:49:00Z", now), "in 1 h 9 min");
+    assert.strictEqual(F.formatCountdown("2026-10-19T04:59:59Z", now), "in 4 d 15 h");
+    assert.strictEqual(F.formatCountdown("2026-10-14T13:43:30Z", now), "in 3 min");
+    assert.strictEqual(F.formatCountdown("2026-10-14T13:40:20Z", now), "in <1 min");
+    assert.strictEqual(F.formatCountdown("2026-10-14T13:00:00Z", now), "in <1 min");
+    assert.strictEqual(F.formatCountdown("nonsense", now), "");
+  },
+  "formatReset"() {
+    const now = new Date(2026, 9, 14, 15, 0).getTime();
+    assert.strictEqual(F.formatReset(new Date(2026, 9, 14, 18, 50).toISOString(), now), "18:50");
+    assert.strictEqual(F.formatReset(new Date(2026, 9, 19, 6, 59).toISOString(), now), "Mon 06:59");
+    assert.strictEqual(F.formatReset(new Date(2026, 9, 15, 0, 10).toISOString(), new Date(2026, 9, 14, 23, 30).getTime()), "Thu 00:10");
+    assert.strictEqual(F.formatReset("nonsense", now), "");
+  },
+  "formatMoney"() {
+    assert.strictEqual(F.formatMoney(0, "EUR"), "€0");
+    assert.strictEqual(F.formatMoney(10, "EUR"), "€10");
+    assert.strictEqual(F.formatMoney(12.5, "EUR"), "€12.5");
+    assert.strictEqual(F.formatMoney(3.5, null), "3.50");
+    assert.strictEqual(F.formatMoney(3.5, "EURO"), "3.50 EURO");
+    assert.strictEqual(F.formatMoney(null, "EUR"), "?");
+  },
   "hides done and archived by default"() {
     assert.strictEqual(F.matches(row({ note: { status: "done" } }), prefs()), false);
     assert.strictEqual(F.matches(row({ note: { status: "archived" } }), prefs()), false);

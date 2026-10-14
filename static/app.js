@@ -15,6 +15,9 @@
   const DOT_CLASS = { working: "working", waiting: "waiting", permission: "permission", question: "permission",
     failed: "failed", idle: "idle" };
   let systemOpen = false;
+  let limitsOpen = false;
+  const STALE_MIN = 30;
+  const METER_KINDS = new Set(["five_hour", "seven_day"]);
   const PREFS_KEY = "claude-dashboard:prefs:v1";
   const REFRESH_MS = 10000;
 
@@ -161,7 +164,6 @@
     if (!s || !s.sampled_at) {
       box.className = "system";
       box.replaceChildren("System: sampling…");
-      $("#alerts").replaceChildren();
       return;
     }
     const m = s.memory || {};
@@ -178,8 +180,60 @@
     box.className = `system ${F.worstLevel(s.alerts)}`;
     const summary = el("div", { onclick: () => { systemOpen = !systemOpen; render(); } }, parts.join("  │  "));
     box.replaceChildren(...[summary, systemOpen ? renderSystemDetails(s) : null].filter(Boolean));
-    $("#alerts").replaceChildren(...(s.alerts || []).map((a) =>
+  }
+
+  function renderAlerts() {
+    const alerts = [...((data.system && data.system.alerts) || []), ...((data.limits && data.limits.alerts) || [])];
+    $("#alerts").replaceChildren(...alerts.map((a) =>
       el("div", { class: `alert ${a.level}` }, `${a.level === "critical" ? "⛔" : "⚠"} ${a.message}`)));
+  }
+
+  function moneyPair(x) {
+    return `${F.formatMoney(x.used, x.currency)} / ${F.formatMoney(x.limit, x.currency)}`;
+  }
+
+  function extraUsageText(x) {
+    if (!x.enabled) return "Extra usage off";
+    return `Extra usage ${moneyPair(x)}${x.limit_reached ? " · limit reached" : ""}`;
+  }
+
+  function renderLimitWindow(w, now) {
+    const pct = `${Math.round(w.used_pct)}%`;
+    if (!METER_KINDS.has(w.kind)) return el("span", {}, `${w.label} ${pct}`);
+    return el("span", {},
+      `${w.label} `,
+      el("span", { class: `meter ${w.level}` }, el("span", { style: `width: ${Math.min(100, Math.max(0, w.used_pct))}%` })),
+      ` ${pct} · reset ${F.formatReset(w.resets_at, now)} (${F.formatCountdown(w.resets_at, now)})`);
+  }
+
+  function renderLimitsDetails(l) {
+    const head = el("tr", {}, ["Limit", "Used", "Resets", "Updated", "Source"].map((h) => el("th", {}, h)));
+    const rows = l.windows.map((w) => el("tr", {}, el("td", {}, w.label), el("td", {}, `${Math.round(w.used_pct)}%`),
+      el("td", {}, fmt(w.resets_at)), el("td", {}, fmt(w.as_of)), el("td", {}, w.source)));
+    const x = l.extra_usage;
+    const extra = x ? el("tr", {}, el("td", {}, "Extra usage"), el("td", {}, x.enabled ? moneyPair(x) : "off"),
+      el("td", {}, "—"), el("td", {}, fmt(x.as_of)), el("td", {}, "cache")) : null;
+    return el("div", { class: "system-details", onclick: (e) => e.stopPropagation() }, el("table", {}, head, rows, extra));
+  }
+
+  function renderLimits() {
+    const box = $("#limits");
+    const l = data.limits;
+    box.className = "system";
+    if (!loaded) { box.replaceChildren(); return; }
+    if (!l) { box.replaceChildren("Claude limits: unavailable"); return; }
+    if (!l.windows.length && !l.extra_usage) { box.replaceChildren("Claude limits: no data yet"); return; }
+    const now = Date.now();
+    const parts = l.windows.map((w) => renderLimitWindow(w, now));
+    if (l.extra_usage) parts.push(extraUsageText(l.extra_usage));
+    const age = l.as_of ? F.minutesSince(l.as_of, now) : null;
+    const stale = age !== null && age > STALE_MIN;
+    box.className = `system ${F.worstLevel(l.alerts)}${stale ? " stale" : ""}`;
+    const items = ["Claude limits  "];
+    parts.forEach((p, i) => items.push(i ? "  │  " : null, p));
+    if (l.as_of) items.push("  ·  ", `updated ${F.relTime(l.as_of, now)}${stale ? " (stale)" : ""}`);
+    const summary = el("div", { onclick: () => { limitsOpen = !limitsOpen; render(); } }, items);
+    box.replaceChildren(...[summary, limitsOpen ? renderLimitsDetails(l) : null].filter(Boolean));
   }
 
   function renderQueueItem(r) {
@@ -261,6 +315,7 @@
     ];
     if (r.title) items.push(dt("Title"), el("dd", { class: r.title_suspect ? "suspect" : null }, r.title, r.title_suspect ? "  (possibly inherited)" : null));
     items.push(dt("Started"), el("dd", {}, fmt(r.first_ts)), dt("Last activity"), el("dd", {}, fmt(r.last_ts)));
+    if (r.model) items.push(dt("Model"), el("dd", {}, r.effort ? `${r.model} · effort ${r.effort}` : r.model));
     if (r.live) items.push(dt("Running"), el("dd", {}, `${r.live.status}, pid ${r.live.pid}`));
     if (r.warnings.length) items.push(dt("Warnings"), el("dd", { class: "warn" }, warnText(r)));
     if (r.older_copies.length) {
@@ -284,8 +339,9 @@
       if (open) expanded.delete(r.session_id); else expanded.add(r.session_id);
       render();
     });
-    const sub = [r.branch || "—", r.worktree ? `worktree ${r.worktree}` : null, `${r.prompt_count} ${plural(r.prompt_count)}`]
-      .filter(Boolean).join(" · ");
+    const model = [r.model_label, r.effort].filter(Boolean).join(" · ");
+    const sub = [r.branch || "—", r.worktree ? `worktree ${r.worktree}` : null, `${r.prompt_count} ${plural(r.prompt_count)}`,
+      model || null].filter(Boolean).join(" · ");
     const lastPrompts = r.recent_prompts.slice(-2).reverse().map((p) => `» ${trunc(p, 120)}`).join("    ");
     row.append(
       el("div", {
@@ -330,6 +386,8 @@
     pendingRender = false;
     renderChips();
     renderSystem();
+    renderLimits();
+    renderAlerts();
     renderQueue();
     const visible = data.rows.filter((r) => F.matches(r, prefs));
     $("#count").textContent = `showing ${visible.length} of ${data.rows.length}`;

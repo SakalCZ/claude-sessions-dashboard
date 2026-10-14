@@ -11,6 +11,7 @@
     return [
       r.session_id, (r.jira_keys || []).join(" "), r.topic, r.title || "", (r.branches || []).join(" "),
       r.display_dir, r.worktree || "", r.cwd || "", r.search_text || "", (r.note && r.note.note) || "",
+      r.model_label || "", r.effort || "",
       // Older copies (forks) – their branches and keys must be searchable even though the row shows the newer copy.
       ...(r.older_copies || []).map((c) => [c.session_id, (c.jira_keys || []).join(" "), (c.branches || []).join(" ")].join(" ")),
     ].join("\n").toLowerCase();
@@ -106,5 +107,36 @@
     return list.length ? "warn" : "ok";
   }
 
-  return { NO_ISSUE, matches, groupRows, relTime, dirCounts, formatMB, minutesSince, formatWait, splitQueue, worstLevel };
+  function formatCountdown(ts, now) {
+    const t = Date.parse(ts);
+    if (Number.isNaN(t)) return "";
+    const mins = Math.floor((t - (now === undefined ? Date.now() : now)) / 60000);
+    if (mins < 1) return "in <1 min";
+    if (mins < 60) return `in ${mins} min`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `in ${hours} h ${mins % 60} min`;
+    return `in ${Math.floor(hours / 24)} d ${hours % 24} h`;
+  }
+
+  function formatReset(ts, now) {
+    const t = Date.parse(ts);
+    if (Number.isNaN(t)) return "";
+    const d = new Date(t);
+    const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const today = new Date(now === undefined ? Date.now() : now);
+    return d.toDateString() === today.toDateString() ? time : `${d.toLocaleDateString("en-GB", { weekday: "short" })} ${time}`;
+  }
+
+  function formatMoney(amount, currency) {
+    if (amount === null || amount === undefined) return "?";
+    if (!currency) return amount.toFixed(2);
+    try {
+      return new Intl.NumberFormat("en-GB", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(amount);
+    } catch (e) {
+      return `${amount.toFixed(2)} ${currency}`;
+    }
+  }
+
+  return { NO_ISSUE, matches, groupRows, relTime, dirCounts, formatMB, minutesSince, formatWait, splitQueue, worstLevel,
+    formatCountdown, formatReset, formatMoney };
 });
