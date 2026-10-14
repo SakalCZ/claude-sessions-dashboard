@@ -41,10 +41,14 @@ def user(content, *, ts: str, uuid: str, cwd: str = "/w/proj", branch: str = "ma
     }
 
 
-def assistant(*, ts: str, uuid: str, cwd: str = "/w/proj", branch: str = "master") -> dict:
+def assistant(*, ts: str, uuid: str, cwd: str = "/w/proj", branch: str = "master", model: str | None = None,
+              **extra) -> dict:
+    message = {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}
+    if model is not None:
+        message["model"] = model
     return {
-        "type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
-        "timestamp": ts, "uuid": uuid, "parentUuid": None, "cwd": cwd, "gitBranch": branch, "isSidechain": False,
+        "type": "assistant", "message": message, "timestamp": ts, "uuid": uuid, "parentUuid": None, "cwd": cwd,
+        "gitBranch": branch, "isSidechain": False, **extra,
     }
 
 
