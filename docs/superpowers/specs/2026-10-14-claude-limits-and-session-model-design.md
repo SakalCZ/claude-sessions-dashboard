@@ -16,7 +16,8 @@ The user runs several Claude Code sessions at once on a Claude subscription. Two
 ### Success criteria
 
 - While any interactive session is running, the limits block is at most one Claude response behind what Claude Code
-  itself knows about the 5-hour and the weekly window.
+  itself knows about the 5-hour and the weekly window. An idle session that redraws its status line with older values
+  never makes the block go back.
 - The block always says how old its data is; data older than 30 min is visibly marked stale.
 - A window at ≥ 80% shows a warning banner and one macOS notification; ≥ 95% is critical; both repeat at most once
   per `resource_reminder_after_s` while the state lasts. A window that has reset never alerts.
@@ -91,7 +92,11 @@ A temporary copy of the tap (writing raw stdin to the scratchpad) confirms:
 - whether a running session picks up a changed `statusLine.command`, or only new sessions;
 - that an empty status line output takes no line in the Claude Code UI (needed when the user has no status line);
 - the tap's added latency per render (target: < 100 ms);
-- how often `cachedUsageUtilization.fetchedAtMs` advances during a normal working hour.
+- how often `cachedUsageUtilization.fetchedAtMs` advances during a normal working hour;
+- with one session idle and another working: whether the idle one redraws its status line, and with which values
+  (each Claude process reports the limits of its own last API response);
+- how far the status line's `resets_at` lies from the cache's `resets_at` for the same window (sets the same-window
+  tolerance in §6).
 
 The spike's findings go into the plan's ledger. If a fact differs, the smallest change that keeps this spec's
 behavior is made and recorded.
@@ -99,10 +104,10 @@ behavior is made and recorded.
 ## 3. Overview
 
 ```
-Claude Code ──stdin──▶ hook/statusline_tap.py ──▶ <data>/rate_limits.json ─┐
-                         │                                                 ├─▶ limits.py ─▶ App.snapshot()["limits"]
-                         └─▶ original status line command (stdout)         │      │
-~/.claude.json (cachedUsageUtilization) ───────────────────────────────────┘      └─▶ alerts ─▶ Notifier, #alerts
+Claude Code ──stdin──▶ hook/statusline_tap.py ──▶ <data>/rate_limits/<session_id>.json ─┐
+                         │                                                              ├─▶ limits.py ─▶ App.snapshot()["limits"]
+                         └─▶ original status line command (stdout)                      │      │
+~/.claude.json (cachedUsageUtilization) ────────────────────────────────────────────────┘      └─▶ alerts ─▶ Notifier, #alerts
 
 ~/.claude/projects/**.jsonl ──▶ sessions.py (model, effort) ──▶ row["model"], row["model_label"], row["effort"]
 ```
@@ -116,17 +121,19 @@ Standalone, standard library only, like `hook/claude_hook.py`. Claude Code runs 
 
 1. Read all of stdin as bytes.
 2. Try to record the limits (any exception is swallowed, nothing is printed):
-   - parse the bytes as JSON; take `rate_limits` if it is an object with at least one of `five_hour` / `seven_day`;
-   - read `<data>/rate_limits.json`; write a new one only if the stored `rate_limits` differ or the stored
-     `captured_at` is older than 60 s;
+   - parse the bytes as JSON; take `rate_limits` if it is an object with at least one of `five_hour` / `seven_day`,
+     and `session_id` if it matches `^[0-9a-f-]{36}$` (the hook's check); otherwise record nothing;
+   - read `<data>/rate_limits/<session_id>.json`; write a new one only if the stored `rate_limits` differ or the
+     stored `captured_at` is older than 60 s;
    - write atomically (temp file in the same directory, `os.replace`):
 
      ```json
      {"captured_at": "2026-10-14T13:40:02Z", "session_id": "…", "rate_limits": {"five_hour": {…}, "seven_day": {…}}}
      ```
 
-     `rate_limits` is stored as received. Concurrent sessions may overwrite each other; limits are per account, so the
-     last write is the right one.
+     `rate_limits` is stored as received. Each session writes only its own file. Each Claude process reports the
+     limits of its own last API response, so an idle session's file can hold older values than a working one's; the
+     merge in §6 handles that.
 3. Read `<data>/statusline.json` (`{"command": "<original command>"}` or `{"command": null}`). If there is a command,
    run it with the same stdin bytes, the inherited environment and working directory, in the shell confirmed by the
    spike; write its stdout bytes to our stdout, let its stderr through, and exit with its exit code. Without a command,
@@ -157,7 +164,8 @@ One call changes hooks and the status line together, so there is one backup per 
 - The store is written (atomically) before `settings.json`, so the tap never runs without it.
 
 If the user later replaces the status line (by hand or with `/statusline`), the tap is gone until the next
-`install.sh`, which wraps the new command.
+`install.sh`, which wraps the new command. The README tells the user to change the status line by editing their own
+script (e.g. `~/.claude/statusline-command.sh`), which the tap keeps running.
 
 **Uninstall (unwrap):**
 
@@ -170,12 +178,14 @@ If the user later replaces the status line (by hand or with `/statusline`), the 
 
 ## 6. Limits (`limits.py`)
 
-`LimitsReader(data_dir, claude_json_path, config, clock)` with `snapshot() -> dict`. Each file is re-read only when
-its `(mtime, size)` changes. Every missing, malformed or unexpected value means "not available" for that part only;
-nothing raises.
+`LimitsReader(data_dir, claude_json_path, config, clock, tz)` with `snapshot() -> dict`. Each file is re-read only
+when its `(mtime, size)` changes. Every missing, malformed or unexpected value means "not available" for that part
+only; nothing raises. Claude Code rewrites `~/.claude.json` often; when it cannot be parsed (e.g. caught mid-write),
+the last good parse is kept and the file is retried on the next snapshot.
 
-**From the tap** (`<data>/rate_limits.json`): `five_hour` and `seven_day` with `used_percentage` (number) and
-`resets_at` (epoch seconds); `as_of` = `captured_at`; `source` = `"statusline"`.
+**From the tap** (every `<data>/rate_limits/*.json`): `five_hour` and `seven_day` with `used_percentage` (number) and
+`resets_at` (epoch seconds); `as_of` = `captured_at`; `source` = `"statusline"`. Files not modified for 8 days are
+deleted (no window lasts longer than 7 days).
 
 **From the cache** (`~/.claude.json`), only if `cachedUsageUtilization.accountUuid` equals
 `oauthAccount.accountUuid`; `as_of` = `fetchedAtMs`; `source` = `"cache"`:
@@ -186,8 +196,18 @@ nothing raises.
 - extra usage from `utilization.extra_usage`: `enabled` = `is_enabled`, `used` = `used_credits / 10**decimal_places`,
   `limit` = `monthly_limit / 10**decimal_places`, `currency`, `limit_reached` = `spend_limit_reached`.
 
-**Merge:** for `five_hour` and `seven_day`, per window, the source with the newer `as_of` wins. A window whose
-`resets_at` is in the past is dropped (from either source, before the comparison). Result:
+**Merge**, per window kind, over every candidate from the session files and the cache. Usage within a window only
+goes up, so the highest value is the most recent one, whichever session reported it:
+
+1. Drop candidates whose `resets_at` is in the past.
+2. The window with the latest `resets_at` wins (a later reset means a newer window). Two `resets_at` values within
+   600 s of each other are the same window (the status line rounds to seconds, the cache does not; the spike confirms
+   the distance).
+3. Within that window, the highest `used_pct` wins.
+4. `as_of` is the newest `as_of` among the candidates of that window with that `used_pct`; `source` is that
+   candidate's source.
+
+Result:
 
 ```json
 {
@@ -253,8 +273,9 @@ Claude limits  5h ████░░░░░░ 32% · reset 18:50 (in 1 h 9 mi
   other than `<synthetic>`, set `model` to it and `effort` to the record's `effort` if it is a string, else `None`.
   Effort is replaced together with the model, so a model without effort clears it.
 - `Session` gets `model` and `effort`; the row gets `model`, `model_label` and `effort`.
-- `model_label(model_id)`: drop the `claude-` prefix, a trailing `[…]` and a trailing `-YYYYMMDD`; split on `-`; the
-  first alphabetic part is the family (capitalized), the numeric parts joined with `.` are the version:
+- `model_label(model_id)`: an id that does not start with `claude-` stays as it is. Otherwise drop the `claude-`
+  prefix, a trailing `[…]` and a trailing `-YYYYMMDD`; split on `-`; the first alphabetic part is the family
+  (capitalized), the numeric parts joined with `.` are the version:
   `claude-opus-5-5` → `Opus 5.5`, `claude-sonnet-4-5-20250929` → `Sonnet 4.5`, `claude-3-5-haiku-20241022` →
   `Haiku 3.5`. No alphabetic part → the raw id. `None` → `None`.
 - Row second line: `<branch> · <worktree> · 12 prompts · Opus 5.5 · xhigh` (model and effort only when known).
@@ -275,14 +296,16 @@ Claude limits  5h ████░░░░░░ 32% · reset 18:50 (in 1 h 9 mi
 `unittest`, same style and helpers as the existing tests:
 
 - `tests/test_statusline_tap.py` (run as a subprocess with a temp data dir): stdin reaches the original command
-  unchanged; its stdout and exit code pass through; no command → empty output, exit 0; the file is written on change
-  and when older than 60 s, not otherwise; invalid JSON, missing `rate_limits` and an unwritable data dir still run
-  the original command.
+  unchanged; its stdout and exit code pass through; no command → empty output, exit 0; the session's file is written
+  on change and when older than 60 s, not otherwise; an invalid `session_id` records nothing; invalid JSON, missing
+  `rate_limits` and an unwritable data dir still run the original command.
 - `tests/test_settings_merge.py`: wrap with an existing status line (other keys kept), wrap without one, idempotent
   re-install, unwrap with and without a stored command, unwrap of a foreign status line, invalid shapes raise.
-- `tests/test_limits.py` with an anonymized `cachedUsageUtilization` fixture and a captured status line input: newer
-  source wins, expired windows dropped, per-model window, extra usage in major units, account mismatch ignored, levels
-  at the thresholds, reset message formats, malformed inputs.
+- `tests/test_limits.py` with an anonymized `cachedUsageUtilization` fixture and a captured status line input: an
+  idle session's lower value never beats a working session's higher one, a later window beats an earlier one, the
+  same-window tolerance, expired windows dropped, per-model window, extra usage in major units, account mismatch
+  ignored, an unparsable `~/.claude.json` keeps the last good data, old session files deleted, levels at the
+  thresholds, reset message formats, malformed inputs.
 - `tests/test_sessions_parse.py`: model and effort taken from the last main-chain response, `<synthetic>` and sidechain
   skipped, effort cleared by a model without one; `model_label` cases.
 - `tests/test_notifier.py`: custom titles; system and limit alerts in one call do not reset each other.
