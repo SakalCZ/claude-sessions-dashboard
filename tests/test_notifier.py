@@ -112,10 +112,10 @@ class NotifierTest(unittest.TestCase):
     def test_alert_titles_and_mixed_kinds_in_one_call(self):
         mem = {"kind": "memory", "level": "warn", "message": "m"}
         lim = {"kind": "limit:five_hour", "level": "warn", "title": "Claude limits: warn",
-               "message": "Claude 5h limit at 85% \u00b7 resets 16:49"}
+               "message": "Claude 5h limit at 85% \u00b7 resets 16:50"}
         self.n.check_alerts([mem, lim])
         self.assertCountEqual(self.sent, [("Mac resources: warn", "m"),
-                                          ("Claude limits: warn", "Claude 5h limit at 85% \u00b7 resets 16:49")])
+                                          ("Claude limits: warn", "Claude 5h limit at 85% \u00b7 resets 16:50")])
         self.now += 60
         self.n.check_alerts([mem, lim])
         self.assertEqual(len(self.sent), 2)

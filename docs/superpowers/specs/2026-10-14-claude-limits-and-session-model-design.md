@@ -260,6 +260,8 @@ Claude limits  5h ████░░░░░░ 32% · reset 18:50 (in 1 h 9 mi
 
 - 5h and Week get a small CSS meter; per-model windows show the percentage only. Meter colors follow the window level.
 - `updated … ago` uses `limits.as_of`. Older than 30 min → the line is greyed out and says `(stale)`.
+- A window or the extra usage whose own `as_of` is older than 30 min (cache-only parts such as `Week · Fable`) is
+  greyed out and gets an age suffix, e.g. `Week · Fable 3% (2 h ago)`.
 - No windows and no extra usage → `Claude limits: no data yet`.
 - Clicking the line toggles a detail table (like the system bar): per window the exact reset time, `as_of` and
   `source`.

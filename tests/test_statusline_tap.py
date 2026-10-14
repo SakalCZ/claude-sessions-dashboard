@@ -115,6 +115,17 @@ class TapScriptTest(unittest.TestCase):
                 r = self.run_tap()
                 self.assertEqual((r.stdout, r.stderr, r.returncode), (b"", b"", 0))
 
+    def test_stored_command_that_is_the_tap_is_ignored(self):
+        self.set_command(f"python3 {TAP_PATH}")
+        r = self.run_tap()
+        self.assertEqual((r.stdout, r.stderr, r.returncode), (b"", b"", 0))
+
+    def test_closed_stdin_is_empty_input(self):
+        self.set_command("echo line")
+        r = subprocess.run(["sh", "-c", f'"{sys.executable}" -I -S "{TAP_PATH}" 0<&-'], capture_output=True,
+                           env=self.env, timeout=20)
+        self.assertEqual((r.stdout, r.stderr, r.returncode), (b"line\n", b"", 0))
+
     def test_broken_input_or_unwritable_data_still_runs_the_command(self):
         self.set_command("cat")
         (self.data / "rate_limits" / f"{SID}.json").mkdir(parents=True)  # a directory where the file should go

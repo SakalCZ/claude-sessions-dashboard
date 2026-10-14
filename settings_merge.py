@@ -2,7 +2,7 @@
 hook and setting untouched.
 
 Usage: settings_merge.py install <settings.json> <hook-command> <tap-command> <statusline-store>
-       settings_merge.py uninstall <settings.json> <statusline-store>
+       settings_merge.py uninstall <settings.json> [<statusline-store>]
 """
 from __future__ import annotations
 
@@ -181,17 +181,22 @@ def install(path: Path, command: str, tap_command: str, store: Path) -> None:
         _write(path, after)
 
 
+def default_store() -> Path:
+    return Path.home() / "Library" / "Application Support" / "claude-dashboard" / "statusline.json"
+
+
 def uninstall(path: Path, store: Path) -> None:
     path = Path(os.path.realpath(path))
     data = _load(path)
-    if data is not None:
-        before = _dump(data)
-        remove_hooks(data)
-        unwrap_statusline(data, _stored_command(Path(store)))
-        after = _dump(data)
-        if after != before:
-            _backup(path)
-            _write(path, after)
+    if data is None:
+        return
+    before = _dump(data)
+    remove_hooks(data)
+    unwrap_statusline(data, _stored_command(Path(store)))
+    after = _dump(data)
+    if after != before:
+        _backup(path)
+        _write(path, after)
     with contextlib.suppress(FileNotFoundError):
         Path(store).unlink()
 
@@ -201,8 +206,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if len(args) == 5 and args[0] == "install":
             install(Path(args[1]), args[2], args[3], Path(args[4]))
-        elif len(args) == 3 and args[0] == "uninstall":
-            uninstall(Path(args[1]), Path(args[2]))
+        elif len(args) in (2, 3) and args[0] == "uninstall":
+            uninstall(Path(args[1]), Path(args[2]) if len(args) == 3 else default_store())
         else:
             print(__doc__.split("\n\n", 1)[1].strip(), file=sys.stderr)
             return 2

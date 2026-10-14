@@ -31,6 +31,8 @@ const tests = {
     assert.strictEqual(F.formatReset(new Date(2026, 9, 14, 18, 50).toISOString(), now), "18:50");
     assert.strictEqual(F.formatReset(new Date(2026, 9, 19, 6, 59).toISOString(), now), "Mon 06:59");
     assert.strictEqual(F.formatReset(new Date(2026, 9, 15, 0, 10).toISOString(), new Date(2026, 9, 14, 23, 30).getTime()), "Thu 00:10");
+    assert.strictEqual(F.formatReset(new Date(2026, 9, 14, 18, 49, 59, 700).toISOString(), now), "18:50");
+    assert.strictEqual(F.formatReset(new Date(2026, 9, 14, 18, 50, 29).toISOString(), now), "18:50");
     assert.strictEqual(F.formatReset("nonsense", now), "");
   },
   "formatMoney"() {
@@ -105,6 +107,13 @@ const tests = {
     assert.strictEqual(groups.length, 1);
     assert.strictEqual(groups[0].label, "");
     assert.deepStrictEqual(groups[0].rows.map((r) => r.session_id), ["b", "a"]);
+  },
+  "staleAge"() {
+    const now = Date.parse("2026-10-07T12:00:00Z");
+    assert.strictEqual(F.staleAge("2026-10-07T09:00:00Z", now, 30), "3 h ago");
+    assert.strictEqual(F.staleAge("2026-10-07T11:30:00Z", now, 30), "");
+    assert.strictEqual(F.staleAge("2026-10-07T11:29:00Z", now, 30), "31 min ago");
+    assert.strictEqual(F.staleAge("nonsense", now, 30), "");
   },
   "relTime"() {
     const now = Date.parse("2026-10-07T12:00:00Z");

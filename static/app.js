@@ -192,15 +192,20 @@
     return `${F.formatMoney(x.used, x.currency)} / ${F.formatMoney(x.limit, x.currency)}`;
   }
 
-  function extraUsageText(x) {
-    if (!x.enabled) return "Extra usage off";
-    return `Extra usage ${moneyPair(x)}${x.limit_reached ? " · limit reached" : ""}`;
+  function limitPart(asOf, now, ...children) {
+    const age = F.staleAge(asOf, now, STALE_MIN);
+    return el("span", { class: age ? "limit stale" : "limit" }, ...children, age ? ` (${age})` : "");
+  }
+
+  function extraUsageText(x, now) {
+    if (!x.enabled) return limitPart(x.as_of, now, "Extra usage off");
+    return limitPart(x.as_of, now, `Extra usage ${moneyPair(x)}${x.limit_reached ? " · limit reached" : ""}`);
   }
 
   function renderLimitWindow(w, now) {
     const pct = `${Math.round(w.used_pct)}%`;
-    if (!METER_KINDS.has(w.kind)) return el("span", {}, `${w.label} ${pct}`);
-    return el("span", {},
+    if (!METER_KINDS.has(w.kind)) return limitPart(w.as_of, now, `${w.label} ${pct}`);
+    return limitPart(w.as_of, now,
       `${w.label} `,
       el("span", { class: `meter ${w.level}` }, el("span", { style: `width: ${Math.min(100, Math.max(0, w.used_pct))}%` })),
       ` ${pct} · reset ${F.formatReset(w.resets_at, now)} (${F.formatCountdown(w.resets_at, now)})`);
@@ -225,7 +230,7 @@
     if (!l.windows.length && !l.extra_usage) { box.replaceChildren("Claude limits: no data yet"); return; }
     const now = Date.now();
     const parts = l.windows.map((w) => renderLimitWindow(w, now));
-    if (l.extra_usage) parts.push(extraUsageText(l.extra_usage));
+    if (l.extra_usage) parts.push(extraUsageText(l.extra_usage, now));
     const age = l.as_of ? F.minutesSince(l.as_of, now) : null;
     const stale = age !== null && age > STALE_MIN;
     box.className = `system ${F.worstLevel(l.alerts)}${stale ? " stale" : ""}`;

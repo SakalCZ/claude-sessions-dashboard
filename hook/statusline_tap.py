@@ -76,11 +76,16 @@ def record_limits(raw: bytes, ddir: str, now=time.time) -> None:
 
 def original_command(ddir: str) -> str | None:
     command = _read(os.path.join(ddir, "statusline.json")).get("command")
-    return command if isinstance(command, str) and command.strip() else None
+    if not isinstance(command, str) or not command.strip() or "statusline_tap.py" in command:
+        return None
+    return command
 
 
 def main() -> int:
-    raw = sys.stdin.buffer.read()
+    try:
+        raw = sys.stdin.buffer.read()
+    except (OSError, ValueError, AttributeError):
+        raw = b""
     ddir = os.environ.get("CLAUDE_DASHBOARD_DATA_DIR") or os.path.expanduser(
         "~/Library/Application Support/claude-dashboard")
     try:

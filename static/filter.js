@@ -83,6 +83,11 @@
     return Math.max(0, Math.floor(((now === undefined ? Date.now() : now) - t) / 60000));
   }
 
+  function staleAge(ts, now, staleMin) {
+    const mins = minutesSince(ts, now);
+    return mins !== null && mins > staleMin ? relTime(ts, now) : "";
+  }
+
   function formatWait(mins) {
     if (mins === null || mins === undefined) return "?";
     if (mins < 60) return `${mins} min`;
@@ -121,7 +126,7 @@
   function formatReset(ts, now) {
     const t = Date.parse(ts);
     if (Number.isNaN(t)) return "";
-    const d = new Date(t);
+    const d = new Date(t + 30000);
     const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
     const today = new Date(now === undefined ? Date.now() : now);
     return d.toDateString() === today.toDateString() ? time : `${d.toLocaleDateString("en-GB", { weekday: "short" })} ${time}`;
@@ -137,6 +142,6 @@
     }
   }
 
-  return { NO_ISSUE, matches, groupRows, relTime, dirCounts, formatMB, minutesSince, formatWait, splitQueue, worstLevel,
+  return { NO_ISSUE, matches, groupRows, relTime, dirCounts, formatMB, minutesSince, staleAge, formatWait, splitQueue, worstLevel,
     formatCountdown, formatReset, formatMoney };
 });

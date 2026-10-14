@@ -1,9 +1,12 @@
 import json
 import os
+import shutil
 import stat
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import settings_merge as sm
 
@@ -218,13 +221,47 @@ class SettingsMergeTest(unittest.TestCase):
         self.assertTrue(self.path.is_symlink())
         self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"statusLine": USER_LINE, "hooks": {}})
 
+    def test_uninstall_default_store(self):
+        home = Path(self.tmp.name, "home")
+        store = home / "Library" / "Application Support" / "claude-dashboard" / "statusline.json"
+        self.write({"statusLine": USER_LINE})
+        sm.install(self.path, CMD, TAP, store)
+        with mock.patch.object(Path, "home", return_value=home):
+            self.assertEqual(sm.main(["uninstall", str(self.path)]), 0)
+        self.assertEqual(self.read()["statusLine"], USER_LINE)
+        self.assertFalse(store.exists())
+
+    def test_uninstall_missing_settings_keeps_store(self):
+        self.store.write_text(json.dumps({"command": "x"}), encoding="utf-8")
+        self.uninstall()
+        self.assertTrue(self.store.exists())
+
+    def test_uninstall_script_stops_before_removing_anything_when_unwrap_fails(self):
+        root = Path(__file__).resolve().parent.parent
+        home = Path(self.tmp.name, "home")
+        app = home / "Library" / "Application Support" / "claude-dashboard" / "app"
+        app.mkdir(parents=True)
+        shutil.copy(root / "settings_merge.py", app / "settings_merge.py")
+        (home / ".claude").mkdir()
+        (home / ".claude" / "settings.json").write_text("{nope", encoding="utf-8")
+        bin_dir = Path(self.tmp.name, "bin")
+        bin_dir.mkdir()
+        stub = bin_dir / "launchctl"
+        stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        stub.chmod(0o755)
+        env = {**os.environ, "HOME": str(home), "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+        r = subprocess.run(["bash", str(root / "launchd" / "uninstall.sh")], env=env, capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertTrue((app / "settings_merge.py").exists())
+        self.assertNotIn("Uninstalled", r.stdout)
+
     def test_main_cli(self):
         self.assertEqual(sm.main(["install", str(self.path), CMD, TAP, str(self.store)]), 0)
         self.assertEqual(self.read()["statusLine"]["command"], TAP)
         self.assertEqual(sm.main(["uninstall", str(self.path), str(self.store)]), 0)
         self.assertNotIn("statusLine", self.read())
         self.assertEqual(sm.main(["install", str(self.path), CMD]), 2)
-        self.assertEqual(sm.main(["uninstall", str(self.path)]), 2)
+        self.assertEqual(sm.main(["uninstall"]), 2)
         self.assertEqual(sm.main(["bogus"]), 2)
         self.path.write_text("{nope", encoding="utf-8")
         self.assertEqual(sm.main(["install", str(self.path), CMD, TAP, str(self.store)]), 1)

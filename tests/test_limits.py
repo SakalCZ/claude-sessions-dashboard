@@ -183,15 +183,15 @@ class LimitsTest(unittest.TestCase):
         self.assertEqual([w["level"] for w in snap["windows"]], ["warn", "critical"])
         self.assertEqual(snap["alerts"], [
             {"kind": "limit:five_hour", "level": "warn", "title": "Claude limits: warn",
-             "message": "Claude 5h limit at 85% · resets 16:49"},
+             "message": "Claude 5h limit at 85% · resets 16:50"},
             {"kind": "limit:seven_day", "level": "critical", "title": "Claude limits: critical",
-             "message": "Claude Week limit reached · resets Mon 04:59"},
+             "message": "Claude Week limit reached · resets Mon 05:00"},
         ])
 
     def test_per_model_alert(self):
         self.write_cache(lambda d: d["cachedUsageUtilization"]["utilization"]["limits"][2].update(percent=81))
         [alert] = self.reader.snapshot()["alerts"]
-        self.assertEqual(alert["message"], "Claude Week · Fable limit at 81% · resets Mon 04:59")
+        self.assertEqual(alert["message"], "Claude Week · Fable limit at 81% · resets Mon 05:00")
 
     def test_threshold_edges_and_config(self):
         for pct, expected in ((79.9, "normal"), (80, "warn"), (94.9, "warn"), (95, "critical"), (130, "critical")):
@@ -203,8 +203,8 @@ class LimitsTest(unittest.TestCase):
 
     def test_reset_text(self):
         utc = timezone.utc
-        self.assertEqual(limits.reset_text(FIVE_RESET, NOW, utc), "16:49")
-        self.assertEqual(limits.reset_text(WEEK_RESET, NOW, utc), "Mon 04:59")
+        self.assertEqual(limits.reset_text(FIVE_RESET, NOW, utc), "16:50")
+        self.assertEqual(limits.reset_text(WEEK_RESET, NOW, utc), "Mon 05:00")
         late = 1792020600  # 2026-10-14T23:30:00Z
         self.assertEqual(limits.reset_text(late + 2400, late, utc), "Thu 00:10")
         prague = zoneinfo.ZoneInfo("Europe/Prague")

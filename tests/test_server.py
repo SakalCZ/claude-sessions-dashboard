@@ -52,7 +52,7 @@ class FakeLimits:
                          "as_of": "2026-10-14T13:40:00Z", "source": "statusline", "level": "warn"}],
             "extra_usage": None, "as_of": "2026-10-14T13:40:00Z",
             "alerts": [{"kind": "limit:five_hour", "level": "warn", "title": "Claude limits: warn",
-                        "message": "Claude 5h limit at 85% \u00b7 resets 16:49"}],
+                        "message": "Claude 5h limit at 85% \u00b7 resets 16:50"}],
         }
 
     def snapshot(self):

@@ -140,8 +140,8 @@ def level(used_pct: float, config: dict) -> str:
 
 
 def reset_text(resets_at: float, now: float, tz=None) -> str:
-    """Local HH:MM, with the weekday when the reset is not today."""
-    reset = datetime.fromtimestamp(resets_at, tz)
+    """Local HH:MM rounded to the nearest minute, with the weekday when the reset is not today."""
+    reset = datetime.fromtimestamp(resets_at + 30, tz)
     if reset.date() == datetime.fromtimestamp(now, tz).date():
         return reset.strftime("%H:%M")
     return reset.strftime("%a %H:%M")

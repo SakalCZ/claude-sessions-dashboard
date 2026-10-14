@@ -80,7 +80,8 @@ a stack shared by several worktrees) to a directory below `~/Documents/Developme
     reported it.
 - **To change your status line**, edit your own script (e.g. `~/.claude/statusline-command.sh`) directly; the wrapper
   keeps running it. If `/statusline` or a manual edit replaces the wrapper, run `install.sh` again.
-- **No status line yet?** `install.sh` adds one that prints nothing, so the dashboard can read the limits; `uninstall.sh` removes it again.
+- **No status line yet?** `install.sh` adds one that prints nothing, so the dashboard can read the limits;
+  `uninstall.sh` removes it again.
 - **Warnings:** a banner and a macOS notification at 80 % (warn) and 95 % (critical) of any window, repeated at most
   once per `resource_reminder_after_s`.
 - Only Claude subscriptions report these limits. With an API key there is nothing to show.
@@ -109,6 +110,9 @@ a stack shared by several worktrees) to a directory below `~/Documents/Developme
 ```
 
 Your notes are kept in `~/Library/Application Support/claude-dashboard/notes.json`.
+
+Uninstall with this version (or later) before switching to an older checkout, because older versions do not restore the
+status line.
 
 ## Development
 
