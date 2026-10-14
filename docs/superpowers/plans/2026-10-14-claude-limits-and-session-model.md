@@ -2050,4 +2050,17 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 Facts recorded during execution (`Task N: Fact: …`) and rulings applied when a fact differs from the spec (`Task N: Ruling: …`).
 
-- (empty)
+- Task 1: Fact: running sessions do pick up a changed `statusLine.command` immediately; every open session redrew within ~1 s of each settings write.
+- Task 1: Fact: `rate_limits` present with `five_hour` and `seven_day` (`used_percentage`, `resets_at`); a session whose 5-hour window has passed reports only `seven_day`; one session reported `rate_limits` without usable windows.
+- Task 1: Fact: the status line runs ~10 times per minute in a working session (renders cluster around tool calls and streaming).
+- Task 1: Fact: the status line command runs under `/bin/sh -c <command>`, as a child of the `claude` process; `shell=True` matches.
+- Task 1: Fact: idle sessions do not redraw periodically (none in 30 s of observation); they redraw on a settings change and then report the values of their own last response (seen: week 11 % and 5h 50/51 % in idle sessions next to week 29 % and 5h 52 % in the working one, same windows).
+- Task 1: Ruling: keep the 60 s refresh — idle sessions do not redraw periodically, and their older values never reach the merge result (highest wins) — costs if wrong: `as_of` looks fresher than it is after a settings change.
+- Task 1: Fact: status line vs cache `resets_at` distance: 0.3 s (the status line rounds to the full minute); `SAME_WINDOW_S = 600` stays.
+- Task 1: Fact: status line `used_percentage` is an integer; cache `utilization` is an integer; no same-moment comparison was possible because the cache was 1.5 h old (32 % vs 52 %).
+- Task 1: Ruling: no rounding tolerance in `merge` — both sources are integers — costs if wrong: after a reset, a cache value 1 point above the live value can win with an older `as_of` until the live value passes it.
+- Task 1: Fact: cache `fetchedAtMs` at 15:25:33 local; unchanged at 17:04 despite active sessions (refreshed at session start or `/usage`, not per response).
+- Task 1: Fact: the empty-status-line check could not be automated (Claude Code did not start inside `screen`); not checked with the user.
+- Task 1: Ruling: keep the spec — with no status line configured, install adds the tap, which prints nothing; the README says so — the user has a status line, so this affects only other installs — costs if wrong: an empty status line row for users who had none, removed by `uninstall.sh`.
+- Task 1: Fact: `python3` startup with the tap's imports ≈ 70–80 ms (Python 3.14, /usr/local/bin); with `-I -S` ≈ 30 ms. The user's own status line script takes 40–60 ms.
+- Task 1: Ruling: the tap command is `"<python3>" -I -S '<tap>'` (Task 8 `TAP_CMD`; Task 3 test constant `TAP` follows) — the tap is stdlib-only, so isolated mode without `site` is safe and cuts ~50 ms per render — costs if wrong: an interpreter whose stdlib needs `site` would fail; the tap test suite runs it the same way.
