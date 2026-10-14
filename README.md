@@ -20,6 +20,7 @@ You can resume a session by copying `cd … && claude --resume …` or by openin
 - **Jira keys:** taken from branch names, `*.atlassian.net/browse/KEY` links and session titles. Free-text noise such as `P1-1` is ignored.
 - **Forks:** forked or copied sessions are folded under the newest copy, and their keys stay searchable.
 - **Live status:** read from `~/.claude/sessions/<pid>.json` and checked against the real process start time.
+- **Model and effort:** each session shows the model and reasoning effort of its last response (e.g. `Opus 5.5 · xhigh`); both are searchable.
 - **Missing directories:** a session whose directory no longer exists (for example a removed worktree) is flagged and is not opened.
 - **Speed:** transcripts are append-only, so the server reads only new lines and refreshes are cheap even for large files.
 
@@ -54,6 +55,8 @@ Optional `~/Library/Application Support/claude-dashboard/config.json`; missing k
   "cpu_sustain_s": 120,
   "process_sample_interval_s": 10,
   "docker_sample_interval_s": 30,
+  "limit_warn_pct": 80,
+  "limit_critical_pct": 95,
   "notifications_enabled": true,
   "docker_project_dirs": {"my-shared-stack": "acme/shop_local"}
 }
@@ -61,6 +64,26 @@ Optional `~/Library/Application Support/claude-dashboard/config.json`; missing k
 
 `docker_project_dirs` attributes a compose project whose `working_dir` lies outside the session's repository (e.g.
 a stack shared by several worktrees) to a directory below `~/Documents/Development`.
+
+## Claude usage limits
+
+- **The block** shows the 5-hour and the weekly limit (used %, reset time, countdown), the weekly limit of individual
+  models (e.g. Fable) and the extra-usage credits, with the time of the newest data. Data older than 30 min is marked
+  stale. Click it for exact reset times and sources.
+- **Where the numbers come from:**
+  - `install.sh` puts a small wrapper (`hook/statusline_tap.py`) in front of your status line command. It records the
+    limits Claude Code passes to the status line after every response, then runs your own command unchanged. Your
+    original command is kept in `statusline.json` in the data directory; `uninstall.sh` restores it.
+  - Claude Code's own usage cache in `~/.claude.json` adds the per-model limits and extra usage. It is refreshed less
+    often.
+  - Usage only grows within a window, so the highest value reported for the current window wins, whichever session
+    reported it.
+- **To change your status line**, edit your own script (e.g. `~/.claude/statusline-command.sh`) directly; the wrapper
+  keeps running it. If `/statusline` or a manual edit replaces the wrapper, run `install.sh` again.
+- **No status line yet?** `install.sh` adds one that prints nothing, so the dashboard can read the limits; `uninstall.sh` removes it again.
+- **Warnings:** a banner and a macOS notification at 80 % (warn) and 95 % (critical) of any window, repeated at most
+  once per `resource_reminder_after_s`.
+- Only Claude subscriptions report these limits. With an API key there is nothing to show.
 
 ## Requirements
 
