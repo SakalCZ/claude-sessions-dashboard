@@ -147,6 +147,12 @@ EOF
 
 Record `Task 1: Fact: an idle session <does|does not> redraw (every ~N s), with <its old|current> values`.
 
+If idle sessions redraw periodically, the 60 s refresh would re-stamp `captured_at` without any API response, and the block would never look stale. Usage from other machines counts against the same windows, so staleness matters. Ruling in that case:
+- Task 2 writes only when the values change; drop `REFRESH_S`.
+- Replace `test_unchanged_values_are_rewritten_only_after_60_s` with a test that unchanged values are never rewritten.
+
+If idle sessions do not redraw, keep the 60 s rule.
+
 - [ ] **Step 5: Same-window distance and cache cadence**
 
 ```bash
@@ -164,13 +170,16 @@ print("fetchedAtMs", cache["fetchedAtMs"], datetime.fromtimestamp(cache["fetched
 EOF
 ```
 
+Also print both `used_percentage` values next to the cache's `utilization` for the same moment (the `tap[k]` and `u[k]` dicts above), and look at a few captures for fractional values.
+
 Record:
 - `Task 1: Fact: status line vs cache resets_at distance: N s`. If N > 300, raise `SAME_WINDOW_S` in Task 4 to at least 2 × N (a ruling).
+- `Task 1: Fact: status line used_percentage is <integer|fractional>; cache utilization is <integer|fractional>; same-moment values <match|differ by N>`. If the two sources round differently, "highest wins" would keep a rounded-up cache value and its older `as_of` (a ruling). In that case `merge` treats values within 1 point of the top as the same reading and takes the newest of them. Task 4 then adds a test: a cache value 32 at 13:25 and a status line value 31.6 at 13:39 give 31.6 at 13:39.
 - `Task 1: Fact: cache fetchedAtMs at <time>`. Task 8 Step 7 records it again to measure the refresh cadence.
 
 - [ ] **Step 6: Empty status line output**
 
-Ask the user to run this in a new iTerm2 tab and say whether an empty line appears where the status line would be:
+Ask the user to run this in a new iTerm2 tab and say whether an empty line appears where the status line would be (`--settings` accepts a JSON string):
 
 ```bash
 claude --settings '{"statusLine":{"type":"command","command":"true"}}'
@@ -1102,6 +1111,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1245,6 +1255,7 @@ class LimitsReader:
         self.claude_json = Path(claude_json)
         self.config, self.clock, self.tz = config, clock, tz
         self._files: dict[Path, tuple[tuple[int, int], object]] = {}
+        self._lock = threading.Lock()  # HTTP threads and the monitor tick share the file cache
 
     def _load(self, path: Path, st: os.stat_result | None = None):
         """Parsed JSON, re-read only when (mtime, size) changes; an unparsable file keeps its last good parse."""
@@ -1287,10 +1298,12 @@ class LimitsReader:
         return out
 
     def snapshot(self) -> dict:
-        now = self.clock()
-        cache_windows, extra = cache_usage(self._load(self.claude_json))
+        with self._lock:
+            now = self.clock()
+            cache_windows, extra = cache_usage(self._load(self.claude_json))
+            candidates = self._session_windows(now) + cache_windows
         windows, alerts = [], []
-        for w in merge(self._session_windows(now) + cache_windows, now):
+        for w in merge(candidates, now):
             w = {**w, "level": level(w["used_pct"], self.config)}
             alert = alert_for(w, now, self.tz)
             if alert:
