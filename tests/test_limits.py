@@ -16,6 +16,7 @@ FIVE_RESET = 1791996599     # 2026-10-14T16:49:59Z
 WEEK_RESET = 1792385999     # 2026-10-19T04:59:59Z (a Monday)
 SID_A = "aaaaaaaa-0000-4000-8000-000000000000"
 SID_B = "bbbbbbbb-0000-4000-8000-000000000000"
+SID_C = "cccccccc-0000-4000-8000-000000000000"
 
 
 class LimitsTest(unittest.TestCase):
@@ -138,6 +139,43 @@ class LimitsTest(unittest.TestCase):
         self.assertEqual(self.windows()["five_hour"]["used_pct"], 10.0)
         self.assertFalse(old.exists())
         self.assertTrue(fresh.exists())
+
+    def test_out_of_range_and_non_finite_values_are_dropped(self):
+        def raw_session(sid, captured_at, rate):
+            folder = self.data / "rate_limits"
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f"{sid}.json"
+            path.write_text(json.dumps({"captured_at": captured_at, "session_id": sid, "rate_limits": rate}),
+                            encoding="utf-8")
+            os.utime(path, (NOW, NOW))
+
+        self.write_cache()  # five_hour 32, seven_day 27, weekly:Fable 3
+        raw_session(SID_A, NOW, {"five_hour": {"used_percentage": 40, "resets_at": FIVE_RESET * 1000},  # ms scale
+                                 "seven_day": {"used_percentage": 60, "resets_at": WEEK_RESET}})
+        raw_session(SID_B, 1e30, {"five_hour": {"used_percentage": 90, "resets_at": FIVE_RESET}})  # huge captured_at
+        raw_session(SID_C, NOW, {"five_hour": {"used_percentage": float("inf"), "resets_at": FIVE_RESET},
+                                 "seven_day": {"used_percentage": float("nan"), "resets_at": WEEK_RESET}})
+        raw_session("dddddddd-0000-4000-8000-000000000000", float("nan"),
+                    {"five_hour": {"used_percentage": 95, "resets_at": FIVE_RESET}})
+        snap = self.reader.snapshot()
+        w = {x["kind"]: x for x in snap["windows"]}
+        self.assertEqual(w["five_hour"]["used_pct"], 32.0)  # only the cache value survives
+        self.assertEqual(w["seven_day"]["used_pct"], 60.0)
+        self.assertEqual(w["weekly:Fable"]["used_pct"], 3.0)
+        self.assertEqual(len(snap["windows"]), 3)
+
+    def test_out_of_range_cache_timestamp_is_ignored(self):
+        for fetched in (1e30, float("inf"), 10 ** 400):
+            with self.subTest(fetched=fetched):
+                self.write_cache(lambda d: d["cachedUsageUtilization"].update(fetchedAtMs=fetched))
+                snap = self.reader.snapshot()
+                self.assertEqual((snap["windows"], snap["extra_usage"], snap["as_of"]), ([], None, None))
+
+    def test_out_of_range_epoch_values(self):
+        for value in (1e30, float("inf"), float("nan"), 10 ** 400, FIVE_RESET * 1000, -1):
+            with self.subTest(value=value):
+                self.assertIsNone(limits.parse_ts(value))
+        self.assertIsNone(limits.parse_ts("9999-12-31T23:59:59+00:00"))
 
     def test_levels_and_alerts(self):
         self.write_tap(SID_A, NOW, five=(85, FIVE_RESET), week=(100, WEEK_RESET))

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import threading
 import time
@@ -12,6 +13,8 @@ from pathlib import Path
 WINDOWS = {"five_hour": "5h", "seven_day": "Week"}
 SAME_WINDOW_S = 600
 SESSION_FILE_TTL_S = 8 * 86400
+MIN_TS = 86400
+MAX_TS = 253402214400 - 86400  # before year 9999, with room for any local UTC offset
 
 
 def iso(ts: float) -> str:
@@ -19,21 +22,32 @@ def iso(ts: float) -> str:
 
 
 def _num(value) -> float | None:
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _in_range(ts: float) -> float | None:
+    return ts if MIN_TS <= ts <= MAX_TS else None
 
 
 def parse_ts(value) -> float | None:
-    """Epoch seconds from epoch seconds or an ISO 8601 string with a UTC offset."""
+    """Epoch seconds from epoch seconds or an ISO 8601 string with a UTC offset; None if out of range."""
     number = _num(value)
     if number is not None:
-        return number
+        return _in_range(number)
     if not isinstance(value, str):
         return None
     try:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+        ts = dt.timestamp() if dt.tzinfo else None
+    except (ValueError, OverflowError, OSError):
         return None
-    return dt.timestamp() if dt.tzinfo else None
+    return None if ts is None else _in_range(ts)
 
 
 def _dig(obj, *keys):
@@ -83,10 +97,10 @@ def cache_usage(data) -> tuple[list[dict], dict | None]:
     cache = _dig(data, "cachedUsageUtilization")
     account = _dig(data, "oauthAccount", "accountUuid")
     fetched = _num(_dig(cache, "fetchedAtMs"))
+    as_of = parse_ts(fetched / 1000) if fetched is not None else None
     usage = _dig(cache, "utilization")
-    if not account or _dig(cache, "accountUuid") != account or fetched is None or not isinstance(usage, dict):
+    if not account or _dig(cache, "accountUuid") != account or as_of is None or not isinstance(usage, dict):
         return [], None
-    as_of = fetched / 1000
     windows = [_window(kind, label, _dig(usage, kind, "utilization"), _dig(usage, kind, "resets_at"), as_of, "cache")
                for kind, label in WINDOWS.items()]
     entries = usage.get("limits")
