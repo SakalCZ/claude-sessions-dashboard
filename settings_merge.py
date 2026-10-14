@@ -1,7 +1,8 @@
-"""Add or remove the dashboard's hook entries in Claude Code's settings.json, leaving every other hook untouched.
+"""Add or remove the dashboard's hook entries and status line tap in Claude Code's settings.json, leaving every other
+hook and setting untouched.
 
-Usage: settings_merge.py install <settings.json> <hook-command>
-       settings_merge.py uninstall <settings.json>
+Usage: settings_merge.py install <settings.json> <hook-command> <tap-command> <statusline-store>
+       settings_merge.py uninstall <settings.json> <statusline-store>
 """
 from __future__ import annotations
 
@@ -16,6 +17,8 @@ import time
 from pathlib import Path
 
 MARKER = "claude-dashboard/app/hook/claude_hook.py"
+TAP_MARKER = "claude-dashboard/app/hook/statusline_tap.py"
+KEEP = object()
 EVENTS = (
     "SessionStart", "UserPromptSubmit", "PermissionRequest", "Notification",
     "PostToolUse", "Stop", "StopFailure", "SessionEnd",
@@ -79,6 +82,43 @@ def remove_hooks(settings: dict) -> dict:
     return settings
 
 
+def _is_tap(command) -> bool:
+    return isinstance(command, str) and TAP_MARKER in command
+
+
+def wrap_statusline(settings: dict, tap_command: str) -> object:
+    """Point statusLine at the tap. Returns the user's command to store (None when there was no status line), or KEEP
+    when the tap was already in place."""
+    line = settings.get("statusLine")
+    if line is None:
+        settings["statusLine"] = {"type": "command", "command": tap_command}
+        return None
+    if not isinstance(line, dict) or line.get("type") != "command" or not isinstance(line.get("command"), str):
+        raise MergeError("settings.statusLine is not a command status line")
+    original = KEEP if _is_tap(line["command"]) else line["command"]
+    line["command"] = tap_command
+    return original
+
+
+def unwrap_statusline(settings: dict, original: str | None) -> None:
+    line = settings.get("statusLine")
+    if not isinstance(line, dict) or not _is_tap(line.get("command")):
+        return
+    if original:
+        line["command"] = original
+    else:
+        del settings["statusLine"]
+
+
+def _stored_command(store: Path) -> str | None:
+    try:
+        data = json.loads(store.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    command = data.get("command") if isinstance(data, dict) else None
+    return command if isinstance(command, str) and command else None
+
+
 def _load(path: Path) -> dict | None:
     try:
         text = path.read_text(encoding="utf-8")
@@ -125,38 +165,44 @@ def _write(path: Path, text: str) -> None:
         raise
 
 
-def install(path: Path, command: str) -> None:
+def install(path: Path, command: str, tap_command: str, store: Path) -> None:
     path = Path(os.path.realpath(path))  # write through a symlinked settings.json (dotfiles), never replace the link
     data = _load(path)
-    if data is None:
-        _write(path, _dump(add_hooks({}, command)))
-        return
-    before = _dump(data)
-    after = _dump(add_hooks(data, command))
-    if after != before:
+    before = None if data is None else _dump(data)
+    data = add_hooks({} if data is None else data, command)
+    original = wrap_statusline(data, tap_command)
+    after = _dump(data)
+    if original is not KEEP:
+        _write(Path(store), _dump({"command": original}))  # before settings.json: the tap must never run without it
+    if before is None:
+        _write(path, after)
+    elif after != before:
         _backup(path)
         _write(path, after)
 
 
-def uninstall(path: Path) -> None:
+def uninstall(path: Path, store: Path) -> None:
     path = Path(os.path.realpath(path))
     data = _load(path)
-    if data is None:
-        return
-    before = _dump(data)
-    after = _dump(remove_hooks(data))
-    if after != before:
-        _backup(path)
-        _write(path, after)
+    if data is not None:
+        before = _dump(data)
+        remove_hooks(data)
+        unwrap_statusline(data, _stored_command(Path(store)))
+        after = _dump(data)
+        if after != before:
+            _backup(path)
+            _write(path, after)
+    with contextlib.suppress(FileNotFoundError):
+        Path(store).unlink()
 
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     try:
-        if len(args) == 3 and args[0] == "install":
-            install(Path(args[1]), args[2])
-        elif len(args) == 2 and args[0] == "uninstall":
-            uninstall(Path(args[1]))
+        if len(args) == 5 and args[0] == "install":
+            install(Path(args[1]), args[2], args[3], Path(args[4]))
+        elif len(args) == 3 and args[0] == "uninstall":
+            uninstall(Path(args[1]), Path(args[2]))
         else:
             print(__doc__.split("\n\n", 1)[1].strip(), file=sys.stderr)
             return 2
