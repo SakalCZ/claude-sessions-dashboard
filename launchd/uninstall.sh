@@ -7,8 +7,8 @@ SUPPORT_DIR="$HOME/Library/Application Support/claude-dashboard"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
 if [ -f "$SUPPORT_DIR/app/settings_merge.py" ]; then
-  python3 "$SUPPORT_DIR/app/settings_merge.py" uninstall "$HOME/.claude/settings.json" \
-    || echo "Could not remove the Claude Code hooks from ~/.claude/settings.json." >&2
+  python3 "$SUPPORT_DIR/app/settings_merge.py" uninstall "$HOME/.claude/settings.json" "$SUPPORT_DIR/statusline.json" \
+    || { echo "Could not remove the Claude Code hooks and status line from ~/.claude/settings.json. Nothing was removed." >&2; exit 1; }
 fi
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 rm -f "$PLIST"

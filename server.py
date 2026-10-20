@@ -14,6 +14,7 @@ from pathlib import Path
 import agents
 import config as config_mod
 import iterm
+import limits as limits_mod
 import live
 import monitor as monitor_mod
 import notes as notes_mod
@@ -40,7 +41,7 @@ def now_iso() -> str:
 class App:
     def __init__(self, claude_dir, data_dir, *, static_dir=APP_DIR / "static", opener=iterm.open_in_iterm,
                  live_fn=live.get_live, dev_root=sessions.DEV_ROOT, is_missing=sessions.cwd_missing,
-                 config=None, monitor=None, notifier=None, focuser=iterm.focus_tty) -> None:
+                 config=None, monitor=None, notifier=None, focuser=iterm.focus_tty, limits=None) -> None:
         self.claude_dir = Path(claude_dir)
         self.static_dir = Path(static_dir)
         self.cache = sessions.SessionCache(self.claude_dir)
@@ -59,6 +60,8 @@ class App:
         self.monitor = monitor if monitor is not None else monitor_mod.Monitor(self.config)
         self.notifier = notifier if notifier is not None else notifier_mod.Notifier(self.config)
         self.focuser = focuser
+        self.limits = limits if limits is not None else limits_mod.LimitsReader(
+            data_dir, self.claude_dir.parent / ".claude.json", self.config)
 
     def snapshot(self) -> dict:
         rows, hosts = sessions.build_rows(self.cache.load(), dev_root=self.dev_root, is_missing=self.is_missing)
@@ -89,8 +92,13 @@ class App:
             row["resources"] = usage
         with self._lock:
             self._rows = {r["session_id"]: r for r in rows}
+        try:
+            limits = self.limits.snapshot()
+        except Exception as e:  # the overview must work even without the limits block
+            print(f"limits: {e!r}", file=sys.stderr, flush=True)
+            limits = None
         return {"generated_at": now_iso(), "jira_hosts": hosts, "rows": rows,
-                "queue": agents.build_queue(rows), "system": system}
+                "queue": agents.build_queue(rows), "system": system, "limits": limits}
 
     def mark_seen(self, session_id: str) -> str:
         return self.seen.mark(session_id, now_iso())
@@ -111,7 +119,9 @@ class App:
     def tick(self) -> None:
         payload = self.snapshot()
         self.notifier.check_queue(payload["rows"])
-        self.notifier.check_alerts(payload["system"].get("alerts") or [])
+        # One call: check_alerts treats every kind missing from a call as cleared.
+        self.notifier.check_alerts((payload["system"].get("alerts") or [])
+                                   + ((payload["limits"] or {}).get("alerts") or []))
 
     def start_background(self) -> None:
         self.monitor.start(on_sample=self.tick)

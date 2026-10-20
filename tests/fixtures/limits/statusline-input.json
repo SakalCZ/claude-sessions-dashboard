@@ -1,0 +1,80 @@
+{
+  "session_id": "aaaaaaaa-0000-4000-8000-000000000000",
+  "transcript_path": "/Users/me/.claude/projects/-Users-me-Documents-Development-acme-shop/aaaaaaaa-0000-4000-8000-000000000000.jsonl",
+  "cwd": "/Users/me/Documents/Development/acme/shop",
+  "scratchpad_dir": "/private/tmp/claude-501/-Users-me-Documents-Development-acme-shop/aaaaaaaa-0000-4000-8000-000000000000/scratchpad",
+  "prompt_id": "bbbbbbbb-0000-4000-8000-000000000000",
+  "effort": {
+    "level": "xhigh"
+  },
+  "session_name": "Fix the cart total",
+  "model": {
+    "id": "claude-opus-5-5",
+    "display_name": "Opus 5.5"
+  },
+  "workspace": {
+    "current_dir": "/Users/me/Documents/Development/acme/shop",
+    "project_dir": "/Users/me/Documents/Development/acme/shop",
+    "added_dirs": [],
+    "repo": {
+      "host": "github.com",
+      "owner": "acme",
+      "name": "shop"
+    }
+  },
+  "version": "2.1.299",
+  "output_style": {
+    "name": "default"
+  },
+  "cost": {
+    "total_cost_usd": 11.147663699999995,
+    "total_duration_ms": 5909306,
+    "total_api_duration_ms": 1838864,
+    "total_lines_added": 2337,
+    "total_lines_removed": 0
+  },
+  "context_window": {
+    "total_input_tokens": 317854,
+    "total_output_tokens": 2048,
+    "context_window_size": 1000000,
+    "current_usage": {
+      "input_tokens": 2,
+      "output_tokens": 2048,
+      "cache_creation_input_tokens": 1880,
+      "cache_read_input_tokens": 315972
+    },
+    "used_percentage": 32,
+    "remaining_percentage": 68
+  },
+  "exceeds_200k_tokens": true,
+  "prompt_cache": {
+    "warm": true,
+    "caching_observed": true,
+    "ttl": "1h",
+    "expires_at": 1791993839,
+    "requests": 78,
+    "misses": 0,
+    "expected_rebuilds": 0,
+    "hit_ratio": 0.9785504128990291,
+    "cache_write_tokens": 291138,
+    "miss_recache_tokens": 0,
+    "last_miss_at": null,
+    "last_miss_cause": null,
+    "miss_causes": {},
+    "recache_tokens_if_cold": 317854
+  },
+  "fast_mode": false,
+  "thinking": {
+    "enabled": true
+  },
+  "rate_limits": {
+    "five_hour": {
+      "used_percentage": 52,
+      "resets_at": 1791996600
+    },
+    "seven_day": {
+      "used_percentage": 29,
+      "resets_at": 1792386000
+    }
+  }
+}

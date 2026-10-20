@@ -20,6 +20,7 @@ PASTED_RE = re.compile(r"<pasted_content\b[^>]*>(.*?)</pasted_content\b[^>]*>", 
 SYSTEM_TAG_RE = re.compile(r"^<([a-z][a-z0-9_-]*)[\s>]")
 SKIP_PREFIXES = ("Caveat:", "[Request interrupted")
 SKIP_FLAGS = ("isMeta", "isSidechain", "isCompactSummary", "isVisibleInTranscriptOnly")
+SYNTHETIC_MODEL = "<synthetic>"
 PROMPT_STORE_LIMIT = 2000
 SEARCH_LIMIT = 60_000
 TITLE_PREFIX_RE = re.compile(r"^\s*(?:https?://\S+\s*)?(?:[A-Z][A-Z0-9]{1,9}[- ]\d+\b[\s:–—-]*)?")
@@ -106,6 +107,19 @@ def resume_command(cwd: str, session_id: str) -> str:
     return f"cd {shlex.quote(cwd)} && claude --resume {shlex.quote(session_id)}"
 
 
+def model_label(model_id: str | None) -> str | None:
+    """`claude-opus-5-5` → `Opus 5.5`; ids of other shapes stay as they are."""
+    if not model_id or not model_id.startswith("claude-"):
+        return model_id or None
+    name = re.sub(r"-\d{8}$", "", re.sub(r"\[[^\]]*\]$", "", model_id)[len("claude-"):])
+    parts = name.split("-")
+    family = next((p for p in parts if p.isalpha()), None)
+    if family is None:
+        return model_id
+    version = ".".join(p for p in parts if p.isdigit())
+    return f"{family.capitalize()} {version}".rstrip()
+
+
 def _unique(items) -> list:
     return list(dict.fromkeys(items))
 
@@ -126,6 +140,8 @@ class Session:
     root_uuid: str | None = None
     url_keys: list[str] = field(default_factory=list)
     hosts: dict[str, str] = field(default_factory=dict)
+    model: str | None = None
+    effort: str | None = None
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -189,6 +205,8 @@ class _SessionParser:
         self.root_uuid: str | None = None
         self.url_keys: list[str] = []
         self.hosts: dict[str, str] = {}
+        self.model: str | None = None
+        self.effort: str | None = None
 
     def feed(self) -> None:
         """Process complete lines from `offset` to the end of the file. Propagates OSError."""
@@ -235,6 +253,13 @@ class _SessionParser:
                 self.first_ts = ts
             if self.last_ts is None or ts > self.last_ts:
                 self.last_ts = ts
+        if rtype == "assistant" and not rec.get("isSidechain"):
+            message = rec.get("message")
+            model = message.get("model") if isinstance(message, dict) else None
+            if isinstance(model, str) and model and model != SYNTHETIC_MODEL:
+                self.model = model
+                effort = rec.get("effort")
+                self.effort = effort if isinstance(effort, str) and effort else None
         if self.root_uuid is None and not rec.get("isSidechain") and rec.get("uuid"):
             self.root_uuid = rec["uuid"]
         text = prompt_text(rec)
@@ -253,6 +278,7 @@ class _SessionParser:
         s.prompts = list(self.prompts)
         s.first_ts, s.last_ts = self.first_ts, self.last_ts
         s.root_uuid = self.root_uuid
+        s.model, s.effort = self.model, self.effort
         s.url_keys = list(self.url_keys)
         s.hosts = dict(self.hosts)
         s.branches = list(self.branches)
@@ -410,6 +436,9 @@ def _row(s: Session, older: list[Session], by_title, dev_root: Path, is_missing)
         "first_ts": s.first_ts,
         "last_ts": s.last_ts,
         "prompt_count": len(s.prompts),
+        "model": s.model,
+        "model_label": model_label(s.model),
+        "effort": s.effort,
         "is_stub": not s.prompts,
         "first_prompt": one_line(s.prompts[0], 500) if s.prompts else None,
         "recent_prompts": [one_line(p, 500) for p in s.prompts[-5:]],

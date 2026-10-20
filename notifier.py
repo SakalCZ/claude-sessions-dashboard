@@ -79,7 +79,7 @@ class Notifier:
             rise = current > previous and (current > self._last_level.get(kind, 0) or not quiet)
             remind = current and current == previous and not quiet
             if rise or remind:
-                self._deliver(f"Mac resources: {alert['level']}", alert["message"])
+                self._deliver(alert.get("title") or f"Mac resources: {alert['level']}", alert["message"])
                 self._last_sent[kind] = now
                 self._last_level[kind] = current
             self._levels[kind] = current

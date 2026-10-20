@@ -46,6 +46,29 @@ class ParseSessionTest(unittest.TestCase):
         self.assertEqual(s.hosts, {"PROJ": "acme.atlassian.net"})
         self.assertEqual(s.warnings, [])
 
+    def test_model_and_effort_from_last_main_chain_response(self):
+        s = self.parse([
+            user("hi", ts="2026-10-14T10:00:00Z", uuid="u1", cwd=CWD),
+            assistant(ts="2026-10-14T10:00:01Z", uuid="a1", cwd=CWD, model="claude-sonnet-4-5-20250929", effort="high"),
+            assistant(ts="2026-10-14T10:00:02Z", uuid="a2", cwd=CWD, model="claude-opus-5-5", effort="xhigh"),
+            assistant(ts="2026-10-14T10:00:03Z", uuid="a3", cwd=CWD, model="claude-haiku-4-5", effort="low",
+                      isSidechain=True),
+            assistant(ts="2026-10-14T10:00:04Z", uuid="a4", cwd=CWD, model="<synthetic>"),
+            assistant(ts="2026-10-14T10:00:05Z", uuid="a5", cwd=CWD),
+        ])
+        self.assertEqual((s.model, s.effort), ("claude-opus-5-5", "xhigh"))
+
+    def test_model_without_effort_clears_it(self):
+        s = self.parse([
+            assistant(ts="2026-10-14T10:00:01Z", uuid="a1", cwd=CWD, model="claude-opus-5-5", effort="xhigh"),
+            assistant(ts="2026-10-14T10:00:02Z", uuid="a2", cwd=CWD, model="claude-haiku-4-5"),
+        ])
+        self.assertEqual((s.model, s.effort), ("claude-haiku-4-5", None))
+
+    def test_no_model_yet(self):
+        s = self.parse([user("hi", ts="2026-10-14T10:00:00Z", uuid="u1", cwd=CWD)])
+        self.assertEqual((s.model, s.effort), (None, None))
+
     def test_agent_name_is_title_fallback(self):
         s = self.parse([agent_name("DBO", sid(1)), user("x", ts="2026-01-01T00:00:00Z", uuid="u1", cwd=CWD)])
         self.assertEqual(s.title, "DBO")
@@ -138,6 +161,16 @@ class SessionCacheTest(unittest.TestCase):
         self.assertEqual(len(self.cache.load()), 1)
         self.assertEqual(len(self.cache.load()), 1)
         self.assertEqual(self.cache.parse_count, 1)
+
+    def test_cache_picks_up_model_switch_in_appended_lines(self):
+        path = self.fake.write_session(CWD, sid(1), [
+            assistant(ts="2026-10-14T10:00:01Z", uuid="a1", cwd=CWD, model="claude-opus-5-5", effort="xhigh")])
+        self.cache.load()
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(assistant(ts="2026-10-14T10:00:02Z", uuid="a2", cwd=CWD, model="claude-fable-5-1",
+                                          effort="high")) + "\n")
+        [s] = self.cache.load()
+        self.assertEqual((s.model, s.effort), ("claude-fable-5-1", "high"))
 
     def test_cache_reparses_changed_file(self):
         path = self.fake.write_session(CWD, sid(1), [user("a", ts="2026-01-01T00:00:01Z", uuid="u1", cwd=CWD)])

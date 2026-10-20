@@ -45,6 +45,22 @@ class FakeNotifier:
         self.alerts = alerts
 
 
+class FakeLimits:
+    def __init__(self):
+        self.value = {
+            "windows": [{"kind": "five_hour", "label": "5h", "used_pct": 85.0, "resets_at": "2026-10-14T16:49:59Z",
+                         "as_of": "2026-10-14T13:40:00Z", "source": "statusline", "level": "warn"}],
+            "extra_usage": None, "as_of": "2026-10-14T13:40:00Z",
+            "alerts": [{"kind": "limit:five_hour", "level": "warn", "title": "Claude limits: warn",
+                        "message": "Claude 5h limit at 85% \u00b7 resets 16:50"}],
+        }
+
+    def snapshot(self):
+        if isinstance(self.value, Exception):
+            raise self.value
+        return json.loads(json.dumps(self.value))
+
+
 class ServerTest(unittest.TestCase):
     def setUp(self):
         self.fake = FakeClaude()
@@ -77,12 +93,14 @@ class ServerTest(unittest.TestCase):
         cfg["docker_project_dirs"] = {"shared-stack": "acme/shop"}
         self.monitor = FakeMonitor()
         self.notifier = FakeNotifier()
+        self.limits = FakeLimits()
         self.app = server.App(
             self.fake.root, self.data.name, static_dir=self.static.name, opener=opener,
             live_fn=lambda d: {sid(1): {"status": "idle", "pid": 42, "name": "x", "updated_at": 1,
                                         "status_updated_at": 1790000000000}},
             dev_root=Path("/w"), is_missing=lambda c: self.missing,
             config=cfg, monitor=self.monitor, notifier=self.notifier, focuser=focuser,
+            limits=self.limits,
         )
         self.httpd = server.DashboardServer(("127.0.0.1", 0), self.app)
         threading.Thread(target=self.httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
@@ -277,7 +295,23 @@ class ServerTest(unittest.TestCase):
     def test_tick_feeds_notifier(self):
         self.app.tick()
         self.assertEqual([r["session_id"] for r in self.notifier.rows], [sid(1)])
+        self.assertEqual(self.notifier.alerts, self.monitor.system["alerts"] + self.limits.value["alerts"])
+
+    def test_payload_has_limits(self):
+        self.assertEqual(self.request("GET", "/api/sessions")[1]["limits"], self.limits.value)
+
+    def test_failing_limits_give_null(self):
+        self.limits.value = ValueError("boom")
+        status, payload = self.request("GET", "/api/sessions")
+        self.assertEqual((status, payload["limits"]), (200, None))
+        self.app.tick()
         self.assertEqual(self.notifier.alerts, self.monitor.system["alerts"])
+
+    def test_default_limits_reader_paths(self):
+        cfg = config.load_config(Path(self.data.name) / "config.json")
+        app = server.App(self.fake.root, self.data.name, config=cfg, monitor=self.monitor, notifier=self.notifier)
+        self.assertEqual(app.limits.claude_json, Path(self.fake.root).parent / ".claude.json")
+        self.assertEqual(app.limits.sessions_dir, Path(self.data.name) / "rate_limits")
 
     def test_start_background_registers_tick(self):
         self.app.start_background()

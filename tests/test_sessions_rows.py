@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 import sessions
-from tests.helpers import FakeClaude, custom_title, last_prompt, sid, user
+from tests.helpers import FakeClaude, assistant, custom_title, last_prompt, sid, user
 
 ROOT = Path("/w")
 SHOP = "/w/acme/shop"
@@ -24,6 +24,16 @@ class BuildRowsTest(unittest.TestCase):
     def rows(self, items, is_missing=lambda c: False):
         rows, hosts = sessions.build_rows(items, dev_root=ROOT, is_missing=is_missing)
         return {r["session_id"]: r for r in rows}, rows, hosts
+
+    def test_row_model_and_effort(self):
+        s = self.session(1, [user("hi", ts="2026-10-14T10:00:00Z", uuid="u1", cwd=SHOP),
+                             assistant(ts="2026-10-14T10:00:05Z", uuid="a1", cwd=SHOP, model="claude-opus-5-5",
+                                       effort="xhigh")])
+        r = self.rows([s])[0][sid(1)]
+        self.assertEqual((r["model"], r["model_label"], r["effort"]), ("claude-opus-5-5", "Opus 5.5", "xhigh"))
+        s = self.session(2, [user("hi", ts="2026-10-14T10:00:00Z", uuid="u2", cwd=SHOP)])
+        r = self.rows([s])[0][sid(2)]
+        self.assertEqual((r["model"], r["model_label"], r["effort"]), (None, None, None))
 
     def test_row_fields(self):
         prompts = [user(f"prompt {i} https://acme.atlassian.net/browse/PROJ-563" if i == 0 else f"prompt {i}",

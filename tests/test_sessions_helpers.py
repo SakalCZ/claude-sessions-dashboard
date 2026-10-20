@@ -9,6 +9,25 @@ def rec_user(content, **extra):
     return {"type": "user", "message": {"role": "user", "content": content}, **extra}
 
 
+class ModelLabelTest(unittest.TestCase):
+    def test_model_label(self):
+        cases = {
+            "claude-opus-5-5": "Opus 5.5",
+            "claude-fable-5-1": "Fable 5.1",
+            "claude-sonnet-4-5-20250929": "Sonnet 4.5",
+            "claude-3-5-haiku-20241022": "Haiku 3.5",
+            "claude-opus-4-6[1m]": "Opus 4.6",
+            "claude-opus": "Opus",
+            "claude-5-5": "claude-5-5",
+            "us.anthropic.claude-sonnet-4-5-20250929-v1:0": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        }
+        for model_id, label in cases.items():
+            with self.subTest(model_id=model_id):
+                self.assertEqual(sessions.model_label(model_id), label)
+        self.assertIsNone(sessions.model_label(None))
+        self.assertIsNone(sessions.model_label(""))
+
+
 class EncodeCwdTest(unittest.TestCase):
     def test_matches_claude_project_dir_naming(self):
         self.assertEqual(

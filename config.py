@@ -14,6 +14,8 @@ DEFAULTS = {
     "cpu_sustain_s": 120,
     "process_sample_interval_s": 10,
     "docker_sample_interval_s": 30,
+    "limit_warn_pct": 80,
+    "limit_critical_pct": 95,
     "notifications_enabled": True,
     "docker_project_dirs": {},
 }

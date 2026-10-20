@@ -15,13 +15,15 @@ DOMAIN="gui/$(id -u)"
 
 mkdir -p "$APP_DIR/static" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 mkdir -p "$APP_DIR/hook"
-cp "$REPO_DIR"/{server,sessions,live,notes,iterm,agents,monitor,notifier,settings_merge,config}.py "$APP_DIR/"
-cp "$REPO_DIR"/hook/claude_hook.py "$APP_DIR/hook/"
+cp "$REPO_DIR"/{server,sessions,live,notes,iterm,agents,monitor,notifier,settings_merge,config,limits}.py "$APP_DIR/"
+cp "$REPO_DIR"/hook/claude_hook.py "$REPO_DIR"/hook/statusline_tap.py "$APP_DIR/hook/"
 cp "$REPO_DIR"/static/index.html "$REPO_DIR"/static/app.js "$REPO_DIR"/static/filter.js "$APP_DIR/static/"
 
 HOOK_CMD="\"$PYTHON\" '$APP_DIR/hook/claude_hook.py'"
-if ! "$PYTHON" "$APP_DIR/settings_merge.py" install "$HOME/.claude/settings.json" "$HOOK_CMD"; then
-  echo "Could not register the Claude Code hooks in ~/.claude/settings.json (see above). Nothing was changed there." >&2
+TAP_CMD="\"$PYTHON\" -I -S '$APP_DIR/hook/statusline_tap.py'"
+if ! "$PYTHON" "$APP_DIR/settings_merge.py" install "$HOME/.claude/settings.json" "$HOOK_CMD" "$TAP_CMD" \
+     "$SUPPORT_DIR/statusline.json"; then
+  echo "Could not register the Claude Code hooks and status line in ~/.claude/settings.json (see above). Nothing was changed there." >&2
   exit 1
 fi
 
