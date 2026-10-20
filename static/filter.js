@@ -17,10 +17,14 @@
     ].join("\n").toLowerCase();
   }
 
+  function searchTerms(q) {
+    return (q || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  }
+
   function matches(r, f) {
     if (f.runningOnly && !r.live) return false;
     if (f.dirs && f.dirs.length && !f.dirs.includes(r.display_dir)) return false;
-    const terms = (f.q || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const terms = searchTerms(f.q);
     if (terms.length) {
       // Search deliberately ignores status and stub hiding: "563" must find a session marked done, too.
       const hay = haystack(r);
@@ -70,6 +74,12 @@
       counts.set(r.display_dir, (counts.get(r.display_dir) || 0) + 1);
     }
     return Array.from(counts, ([dir, count]) => ({ dir, count })).sort((a, b) => a.dir.localeCompare(b.dir));
+  }
+
+  function filterDirs(counts, q, selected) {
+    const terms = searchTerms(q);
+    // Selected directories stay visible so they can be turned off.
+    return counts.filter(({ dir }) => (selected || []).includes(dir) || terms.every((t) => dir.toLowerCase().includes(t)));
   }
 
   function formatMB(mb) {
@@ -142,6 +152,6 @@
     }
   }
 
-  return { NO_ISSUE, matches, groupRows, relTime, dirCounts, formatMB, minutesSince, staleAge, formatWait, splitQueue, worstLevel,
+  return { NO_ISSUE, matches, groupRows, relTime, dirCounts, filterDirs, formatMB, minutesSince, staleAge, formatWait, splitQueue, worstLevel,
     formatCountdown, formatReset, formatMoney };
 });

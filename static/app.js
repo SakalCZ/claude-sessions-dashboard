@@ -47,7 +47,7 @@
   }
 
   function loadPrefs() {
-    const defaults = { q: "", dirs: [], hide: ["done", "archived"], runningOnly: false, showStubs: false, group: "dir" };
+    const defaults = { q: "", dirs: [], dirQuery: "", hide: ["done", "archived"], runningOnly: false, showStubs: false, group: "dir" };
     try {
       const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
       return Object.assign(defaults, saved && typeof saved === "object" ? saved : {});
@@ -369,8 +369,8 @@
 
   function renderChips() {
     // replaceChildren does not flatten arrays → always spread.
-    $("#dirs").replaceChildren(el("span", { class: "lbl" }, "directories:"),
-      ...F.dirCounts(data.rows).map(({ dir, count }) => el("span", {
+    $("#dirs").replaceChildren(
+      ...F.filterDirs(F.dirCounts(data.rows), prefs.dirQuery, prefs.dirs).map(({ dir, count }) => el("span", {
         class: prefs.dirs.includes(dir) ? "chip on" : "chip",
         onclick: () => { toggle(prefs.dirs, dir); savePrefs(); render(); },
       }, dir, " ", el("span", { class: "n" }, count))));
@@ -432,6 +432,12 @@
     const q = $("#q");
     q.value = prefs.q;
     q.addEventListener("input", () => { prefs.q = q.value; savePrefs(); render(); });
+    const dirq = $("#dirq");
+    dirq.value = prefs.dirQuery;
+    dirq.addEventListener("input", () => { prefs.dirQuery = dirq.value; savePrefs(); render(); });
+    dirq.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { dirq.value = ""; prefs.dirQuery = ""; savePrefs(); render(); }
+    });
     const running = $("#running");
     running.checked = prefs.runningOnly;
     running.addEventListener("change", () => { prefs.runningOnly = running.checked; savePrefs(); render(); });

@@ -21,8 +21,11 @@
   h1 { font-size: 14px; margin: 0; font-weight: 600; white-space: nowrap; }
   #q { flex: 1 1 280px; min-width: 200px; background: var(--bg); border: 1px solid var(--border); color: var(--text);
        padding: 6px 10px; border-radius: 6px; font: inherit; }
-  #q:focus, select:focus, input.note:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  #q:focus, #dirq:focus, select:focus, input.note:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
   .chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  #dirq { width: 130px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 999px;
+          padding: 1px 9px; font: inherit; font-size: 12px; }
+  #dirs { display: contents; }
   .chips .lbl { color: var(--faint); font-size: 12px; margin-right: 2px; }
   .chip { background: var(--chip); border: 1px solid var(--border); color: var(--muted); border-radius: 999px;
           padding: 1px 9px; cursor: pointer; font-size: 12px; user-select: none; }
@@ -128,7 +131,7 @@
     </label>
     <span id="count"></span>
   </div>
-  <div class="chips" id="dirs"></div>
+  <div class="chips"><span class="lbl">directories:</span><input id="dirq" type="search" placeholder="filter…" autocomplete="off"><span id="dirs"></span></div>
   <div class="chips" id="statuses"></div>
   <div id="alerts"></div>
   <div id="system" class="system"></div>

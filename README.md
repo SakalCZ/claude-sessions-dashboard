@@ -17,6 +17,7 @@ You can resume a session by copying `cd … && claude --resume …` or by openin
 
 - **Search:** full-text search over Jira keys, branches, directories, prompt text, notes and session ids. Searching ignores the status filter, so `563` also finds a session you marked as done.
 - **Grouping:** by directory or by issue. Git worktrees are grouped under their repository.
+- **Directories:** click a directory chip to show only its sessions. The field next to the chips narrows them to directories containing every word you type; selected chips always stay visible.
 - **Jira keys:** taken from branch names, `*.atlassian.net/browse/KEY` links and session titles. Free-text noise such as `P1-1` is ignored.
 - **Forks:** forked or copied sessions are folded under the newest copy, and their keys stay searchable.
 - **Live status:** read from `~/.claude/sessions/<pid>.json` and checked against the real process start time.

@@ -164,6 +164,24 @@ const tests = {
     const rows = [row({ display_dir: "budget" }), row({ display_dir: "acme/shop" }), row({ display_dir: "acme/shop" }), row({ display_dir: "x", is_stub: true })];
     assert.deepStrictEqual(F.dirCounts(rows), [{ dir: "acme/shop", count: 2 }, { dir: "budget", count: 1 }]);
   },
+  "filterDirs keeps directories containing every term, case insensitive"() {
+    const counts = [{ dir: "Acme/Shop_9", count: 4 }, { dir: "acme/shop_5", count: 3 }, { dir: "acme/shop_7", count: 1 }, { dir: "budget", count: 1 }];
+    assert.deepStrictEqual(F.filterDirs(counts, "acme", []),
+      [{ dir: "Acme/Shop_9", count: 4 }, { dir: "acme/shop_5", count: 3 }, { dir: "acme/shop_7", count: 1 }]);
+    assert.deepStrictEqual(F.filterDirs(counts, "ACME 7", []), [{ dir: "acme/shop_7", count: 1 }]);
+    assert.deepStrictEqual(F.filterDirs(counts, "shop_9", []), [{ dir: "Acme/Shop_9", count: 4 }]);
+    assert.deepStrictEqual(F.filterDirs(counts, "nothing", []), []);
+  },
+  "filterDirs keeps selected directories that do not match"() {
+    const counts = [{ dir: "acme/shop_5", count: 3 }, { dir: "budget", count: 1 }, { dir: "zeta", count: 2 }];
+    assert.deepStrictEqual(F.filterDirs(counts, "acme", ["budget"]), [{ dir: "acme/shop_5", count: 3 }, { dir: "budget", count: 1 }]);
+  },
+  "filterDirs without a query keeps every directory"() {
+    const counts = [{ dir: "acme/shop_5", count: 3 }, { dir: "budget", count: 1 }];
+    assert.deepStrictEqual(F.filterDirs(counts, "", []), counts);
+    assert.deepStrictEqual(F.filterDirs(counts, "   ", []), counts);
+    assert.deepStrictEqual(F.filterDirs(counts, undefined, undefined), counts);
+  },
 };
 
 let failed = 0;
